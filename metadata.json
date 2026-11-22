@@ -1,0 +1,8 @@
+{
+  "name": "Remix Drag Simulator Pro PBR",
+  "description": "Experience photorealistic drag racing with high-fidelity PBR materials, industrial garage environments, and real-time 3D vehicle customization.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
