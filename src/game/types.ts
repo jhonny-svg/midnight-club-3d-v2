@@ -122,6 +122,174 @@ export function formatPrimaryKeyLabel(codes: string[]): string {
   return formatKeyCodeLabel(codes[0]);
 }
 
+export interface HudElementLayout {
+  x: number; // viewport % (0..100)
+  y: number; // viewport % (0..100)
+  scale: number; // 0.6 .. 1.6
+  opacity: number; // 0.2 .. 1.0
+}
+
+export interface TachometerStyleConfig {
+  accentColor: string;
+  numberColor: string;
+  needleColor: string;
+  showNumbers: boolean;
+  showGear: boolean;
+  faceOpacity: number; // 0.2 .. 1.0
+}
+
+export type HighwayHudElementKey =
+  | 'steerLeft'
+  | 'steerRight'
+  | 'gas'
+  | 'brake'
+  | 'nitro'
+  | 'shiftUp'
+  | 'shiftDown'
+  | 'headlights'
+  | 'speedometer';
+
+export type WalkingHudElementKey = 'joystick' | 'interact' | 'enterCar';
+
+export type HudElementKey = HighwayHudElementKey | WalkingHudElementKey;
+
+export interface CustomHudLayout {
+  // Conducción (HIGHWAY)
+  steerLeft: HudElementLayout;
+  steerRight: HudElementLayout;
+  gas: HudElementLayout;
+  brake: HudElementLayout;
+  nitro: HudElementLayout;
+  shiftUp: HudElementLayout;
+  shiftDown: HudElementLayout;
+  headlights: HudElementLayout;
+  speedometer: HudElementLayout;
+  // A pie (WALKING)
+  joystick: HudElementLayout;
+  interact: HudElementLayout;
+  enterCar: HudElementLayout;
+  // Personalización visual avanzada del tacómetro
+  tachometerStyle: TachometerStyleConfig;
+}
+
+export const HUD_RACING_COLORS: Array<{ id: string; label: string; hex: string }> = [
+  { id: 'red', label: 'Rojo Racing', hex: '#e10600' },
+  { id: 'cyan', label: 'Cian Neón', hex: '#22d3ee' },
+  { id: 'lime', label: 'Verde Lima', hex: '#84cc16' },
+  { id: 'amber', label: 'Ámbar', hex: '#f59e0b' },
+  { id: 'purple', label: 'Morado', hex: '#a855f7' },
+  { id: 'white', label: 'Blanco', hex: '#f8fafc' },
+];
+
+export const DEFAULT_TACHOMETER_STYLE: TachometerStyleConfig = {
+  accentColor: '#e10600',
+  numberColor: '#cbd5e1',
+  needleColor: '#e10600',
+  showNumbers: true,
+  showGear: true,
+  faceOpacity: 0.96,
+};
+
+export const DEFAULT_CUSTOM_HUD: CustomHudLayout = {
+  // Conducción (HIGHWAY)
+  steerLeft: { x: 8, y: 84, scale: 1.0, opacity: 0.92 },
+  steerRight: { x: 19, y: 84, scale: 1.0, opacity: 0.92 },
+  headlights: { x: 8, y: 65, scale: 1.0, opacity: 0.92 },
+  brake: { x: 78, y: 84, scale: 1.0, opacity: 0.92 },
+  gas: { x: 91, y: 84, scale: 1.0, opacity: 0.95 },
+  nitro: { x: 91, y: 65, scale: 1.0, opacity: 0.95 },
+  shiftDown: { x: 71, y: 65, scale: 1.0, opacity: 0.92 },
+  shiftUp: { x: 81, y: 65, scale: 1.0, opacity: 0.92 },
+  speedometer: { x: 50, y: 76, scale: 0.95, opacity: 1.0 },
+  // A pie (WALKING)
+  joystick: { x: 11, y: 80, scale: 1.0, opacity: 1.0 },
+  interact: { x: 74, y: 82, scale: 1.0, opacity: 0.95 },
+  enterCar: { x: 89, y: 82, scale: 1.0, opacity: 0.95 },
+  // Estilo del tacómetro
+  tachometerStyle: { ...DEFAULT_TACHOMETER_STYLE },
+};
+
+export function cloneDefaultCustomHud(): CustomHudLayout {
+  return {
+    steerLeft: { ...DEFAULT_CUSTOM_HUD.steerLeft },
+    steerRight: { ...DEFAULT_CUSTOM_HUD.steerRight },
+    gas: { ...DEFAULT_CUSTOM_HUD.gas },
+    brake: { ...DEFAULT_CUSTOM_HUD.brake },
+    nitro: { ...DEFAULT_CUSTOM_HUD.nitro },
+    shiftUp: { ...DEFAULT_CUSTOM_HUD.shiftUp },
+    shiftDown: { ...DEFAULT_CUSTOM_HUD.shiftDown },
+    headlights: { ...DEFAULT_CUSTOM_HUD.headlights },
+    speedometer: { ...DEFAULT_CUSTOM_HUD.speedometer },
+    joystick: { ...DEFAULT_CUSTOM_HUD.joystick },
+    interact: { ...DEFAULT_CUSTOM_HUD.interact },
+    enterCar: { ...DEFAULT_CUSTOM_HUD.enterCar },
+    tachometerStyle: { ...DEFAULT_CUSTOM_HUD.tachometerStyle },
+  };
+}
+
+function sanitizeHudElementLayout(
+  raw: unknown,
+  fallback: HudElementLayout
+): HudElementLayout {
+  if (!raw || typeof raw !== 'object') return { ...fallback };
+  const obj = raw as Partial<HudElementLayout>;
+  const clamp = (v: unknown, min: number, max: number, def: number) =>
+    typeof v === 'number' && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : def;
+  return {
+    x: clamp(obj.x, 3, 97, fallback.x),
+    y: clamp(obj.y, 5, 95, fallback.y),
+    scale: clamp(obj.scale, 0.6, 1.6, fallback.scale),
+    opacity: clamp(obj.opacity, 0.2, 1.0, fallback.opacity),
+  };
+}
+
+export function sanitizeCustomHud(raw: unknown): CustomHudLayout {
+  const base = cloneDefaultCustomHud();
+  if (!raw || typeof raw !== 'object') return base;
+  const obj = raw as Partial<CustomHudLayout>;
+  const rawStyle = obj.tachometerStyle as Partial<TachometerStyleConfig> | undefined;
+  const isHex = (c: unknown): c is string =>
+    typeof c === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(c.trim());
+
+  return {
+    steerLeft: sanitizeHudElementLayout(obj.steerLeft, base.steerLeft),
+    steerRight: sanitizeHudElementLayout(obj.steerRight, base.steerRight),
+    gas: sanitizeHudElementLayout(obj.gas, base.gas),
+    brake: sanitizeHudElementLayout(obj.brake, base.brake),
+    nitro: sanitizeHudElementLayout(obj.nitro, base.nitro),
+    shiftUp: sanitizeHudElementLayout(obj.shiftUp, base.shiftUp),
+    shiftDown: sanitizeHudElementLayout(obj.shiftDown, base.shiftDown),
+    headlights: sanitizeHudElementLayout(obj.headlights, base.headlights),
+    speedometer: sanitizeHudElementLayout(obj.speedometer, base.speedometer),
+    joystick: sanitizeHudElementLayout(obj.joystick, base.joystick),
+    interact: sanitizeHudElementLayout(obj.interact, base.interact),
+    enterCar: sanitizeHudElementLayout(obj.enterCar, base.enterCar),
+    tachometerStyle: {
+      accentColor: isHex(rawStyle?.accentColor)
+        ? rawStyle!.accentColor
+        : base.tachometerStyle.accentColor,
+      numberColor: isHex(rawStyle?.numberColor)
+        ? rawStyle!.numberColor
+        : base.tachometerStyle.numberColor,
+      needleColor: isHex(rawStyle?.needleColor)
+        ? rawStyle!.needleColor
+        : base.tachometerStyle.needleColor,
+      showNumbers:
+        typeof rawStyle?.showNumbers === 'boolean'
+          ? rawStyle.showNumbers
+          : base.tachometerStyle.showNumbers,
+      showGear:
+        typeof rawStyle?.showGear === 'boolean'
+          ? rawStyle.showGear
+          : base.tachometerStyle.showGear,
+      faceOpacity:
+        typeof rawStyle?.faceOpacity === 'number' && Number.isFinite(rawStyle.faceOpacity)
+          ? Math.min(1.0, Math.max(0.2, rawStyle.faceOpacity))
+          : base.tachometerStyle.faceOpacity,
+    },
+  };
+}
+
 export interface GameSettings {
   // Gráficos
   graphicsQuality: GraphicsQuality;
@@ -145,6 +313,8 @@ export interface GameSettings {
   speedUnits: SpeedUnits;
   showMinimap: boolean;
   showSpeedometer: boolean;
+  // Personalización del HUD táctil y tacómetro
+  customHud: CustomHudLayout;
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -166,6 +336,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   speedUnits: 'KMH',
   showMinimap: true,
   showSpeedometer: true,
+  customHud: cloneDefaultCustomHud(),
 };
 
 export type VehicleBodyStyle =

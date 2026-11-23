@@ -6,7 +6,9 @@ import {
   Gamepad2,
   Globe,
   Keyboard,
+  LayoutTemplate,
   Monitor,
+  Move,
   Radio,
   RotateCcw,
   Sliders,
@@ -15,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import {
+  cloneDefaultCustomHud,
   cloneDefaultKeybindings,
   DEFAULT_SETTINGS,
   formatKeybindingDisplay,
@@ -30,8 +33,9 @@ import {
   ViewDistance,
   WeatherMode,
 } from '../game/types';
+import { HudEditorMode } from './CustomHudEditor';
 
-export type SettingsTab = 'GRAFICOS' | 'AUDIO' | 'CONTROLES' | 'ONLINE' | 'DATOS';
+export type SettingsTab = 'GRAFICOS' | 'AUDIO' | 'CONTROLES' | 'CUSTOM_HUD' | 'ONLINE' | 'DATOS';
 
 interface SettingsModalProps {
   open: boolean;
@@ -41,6 +45,7 @@ interface SettingsModalProps {
   onUpdateSettings: (patch: Partial<GameSettings>) => void;
   onResetProgress: () => void;
   onReturnToMenu?: () => void;
+  onOpenHudEditor?: (mode: HudEditorMode) => void;
   playerName?: string;
   onChangePlayerName?: (name: string) => void;
   onlineConnected?: boolean;
@@ -59,6 +64,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateSettings,
   onResetProgress,
   onReturnToMenu,
+  onOpenHudEditor,
   playerName = 'GHOST_078',
   onChangePlayerName,
   onlineConnected = false,
@@ -71,6 +77,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [confirmReset, setConfirmReset] = useState(false);
   const [capturingAction, setCapturingAction] = useState<KeyAction | null>(null);
+  const [hudModeSelect, setHudModeSelect] = useState<HudEditorMode>('HIGHWAY');
+  const [hudRestoredBanner, setHudRestoredBanner] = useState(false);
   const [draftName, setDraftName] = useState(playerName);
   const [joinCodeInput, setJoinCodeInput] = useState('');
 
@@ -82,6 +90,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (open) {
       setActiveTab(initialTab);
       setConfirmReset(false);
+      setHudRestoredBanner(false);
     }
   }, [open, initialTab]);
 
@@ -133,6 +142,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     { id: 'GRAFICOS', label: 'Gráficos', icon: <Monitor className="h-3.5 w-3.5" /> },
     { id: 'AUDIO', label: 'Audio', icon: <Volume2 className="h-3.5 w-3.5" /> },
     { id: 'CONTROLES', label: 'Controles', icon: <Gamepad2 className="h-3.5 w-3.5" /> },
+    { id: 'CUSTOM_HUD', label: 'CUSTOM HUD', icon: <LayoutTemplate className="h-3.5 w-3.5" /> },
     { id: 'ONLINE', label: 'Online', icon: <Globe className="h-3.5 w-3.5" /> },
     { id: 'DATOS', label: 'Juego / Datos', icon: <Database className="h-3.5 w-3.5" /> },
   ];
@@ -142,6 +152,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     onUpdateSettings({
       ...DEFAULT_SETTINGS,
       keybindings: cloneDefaultKeybindings(),
+      customHud: cloneDefaultCustomHud(),
     });
   };
 
@@ -708,6 +719,127 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     );
                   })}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'CUSTOM_HUD' && (
+            <div className="space-y-5">
+              <div className="border border-white/[0.08] bg-[#06080c] p-4">
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-[#e10600]">
+                  <Move className="h-3.5 w-3.5" />
+                  Personalización Competitiva de HUD Táctil y Tacómetro
+                </div>
+                <p className="mt-1.5 text-xs text-slate-300 leading-relaxed">
+                  Mueve, escala y ajusta la opacidad de cada botón táctil y personaliza los colores,
+                  números e indicador de marcha del tacómetro en tiempo real sobre la pista 3D.
+                </p>
+              </div>
+
+              {/* Mode Selector */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium uppercase tracking-[0.14em] text-slate-200">
+                    Modo de Juego a Editar
+                  </span>
+                  <span className="font-telemetry text-[11px] text-cyan-300">
+                    {hudModeSelect === 'HIGHWAY' ? '9 elementos' : '3 elementos'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 border border-white/[0.08] bg-[#06080c]">
+                  {(
+                    [
+                      { id: 'HIGHWAY', label: 'AUTOPISTA / CONDUCCIÓN' },
+                      { id: 'WALKING', label: 'A PIE / GARAJE' },
+                    ] as Array<{ id: HudEditorMode; label: string }>
+                  ).map((m, idx) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => setHudModeSelect(m.id)}
+                      className={`py-3 px-2 text-[11px] font-bold uppercase tracking-[0.12em] transition-colors cursor-pointer ${
+                        idx > 0 ? 'border-l border-white/[0.08]' : ''
+                      } ${
+                        hudModeSelect === m.id
+                          ? 'bg-[#e10600] text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tachometer Summary Snapshot */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 border border-white/[0.08] bg-[#06080c] p-3">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-4 w-4 border border-white/25 shrink-0"
+                    style={{ backgroundColor: settings.customHud.tachometerStyle.accentColor }}
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[9px] uppercase text-slate-400">Acento</div>
+                    <div className="font-telemetry text-[10px] font-bold text-white truncate">
+                      {settings.customHud.tachometerStyle.accentColor}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="h-4 w-4 border border-white/25 shrink-0"
+                    style={{ backgroundColor: settings.customHud.tachometerStyle.needleColor }}
+                  />
+                  <div className="min-w-0">
+                    <div className="text-[9px] uppercase text-slate-400">Aguja</div>
+                    <div className="font-telemetry text-[10px] font-bold text-white truncate">
+                      {settings.customHud.tachometerStyle.needleColor}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[9px] uppercase text-slate-400">Escala Reloj</div>
+                  <div className="font-telemetry text-[11px] font-bold text-white">
+                    {settings.customHud.speedometer.scale.toFixed(2)}x
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[9px] uppercase text-slate-400">Fondo Reloj</div>
+                  <div className="font-telemetry text-[11px] font-bold text-white">
+                    {Math.round(settings.customHud.tachometerStyle.faceOpacity * 100)}%
+                  </div>
+                </div>
+              </div>
+
+              {/* Primary Open Editor + Reset HUD Buttons */}
+              <div className="space-y-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmReset(false);
+                    onClose();
+                    onOpenHudEditor?.(hudModeSelect);
+                  }}
+                  className="flex w-full items-center justify-center gap-2 bg-[#e10600] py-3.5 px-4 text-xs font-extrabold uppercase tracking-[0.18em] text-white shadow-lg hover:bg-[#ff1812] transition-colors cursor-pointer"
+                >
+                  <LayoutTemplate className="h-4 w-4" />
+                  ABRIR EDITOR DE HUD EN PANTALLA
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onUpdateSettings({ customHud: cloneDefaultCustomHud() });
+                    setHudRestoredBanner(true);
+                    window.setTimeout(() => setHudRestoredBanner(false), 2000);
+                  }}
+                  className="flex w-full items-center justify-center gap-2 border border-white/15 bg-white/[0.04] py-2.5 px-4 text-[11px] font-bold uppercase tracking-[0.14em] text-slate-200 hover:border-white/35 hover:text-white transition-colors cursor-pointer"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  {hudRestoredBanner
+                    ? 'HUD RESTAURADO POR DEFECTO ✓'
+                    : 'RESTAURAR HUD POR DEFECTO'}
+                </button>
               </div>
             </div>
           )}

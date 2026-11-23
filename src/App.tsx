@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { CustomHudEditor, HudEditorMode } from './components/CustomHudEditor';
 import { HighwayHUD } from './components/HighwayHUD';
 import { ProgressionModal } from './components/ProgressionModal';
 import { SettingsModal, SettingsTab } from './components/SettingsModal';
@@ -12,6 +13,7 @@ import {
   CDI_MIN_RPM,
   CDI_RACING_COST,
   CDI_STEP_RPM,
+  cloneDefaultCustomHud,
   cloneDefaultKeybindings,
   createDailyChallengesForDate,
   createDefaultCarState,
@@ -32,6 +34,7 @@ import {
   MISSIONS_ROTATION,
   PaintFinish,
   RimDesign,
+  sanitizeCustomHud,
   SaveProfile,
   SpoilerOption,
   TireProfile,
@@ -252,6 +255,7 @@ function loadSavedSettings(
       return {
         ...DEFAULT_SETTINGS,
         keybindings: cloneDefaultKeybindings(),
+        customHud: cloneDefaultCustomHud(),
         weather: fallbackWeather,
         transmission: fallbackTx,
       };
@@ -297,6 +301,7 @@ function loadSavedSettings(
       ...DEFAULT_SETTINGS,
       ...parsed,
       keybindings: sanitizeKeybindings(parsed.keybindings),
+      customHud: sanitizeCustomHud(parsed.customHud),
       graphicsQuality: migratedQuality,
       weather: migratedWeather,
       viewDistance: migratedViewDist,
@@ -318,6 +323,7 @@ function loadSavedSettings(
     return {
       ...DEFAULT_SETTINGS,
       keybindings: cloneDefaultKeybindings(),
+      customHud: cloneDefaultCustomHud(),
       weather: fallbackWeather,
       transmission: fallbackTx,
     };
@@ -387,6 +393,8 @@ export default function App() {
   const [hud, setHud] = useState<HudSnapshot>(INITIAL_HUD);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('GRAFICOS');
+  const [hudEditorOpen, setHudEditorOpen] = useState(false);
+  const [hudEditorInitialMode, setHudEditorInitialMode] = useState<HudEditorMode>('HIGHWAY');
   const [progressionOpen, setProgressionOpen] = useState(false);
   const [tuningOpen, setTuningOpen] = useState(false);
   const [dealershipOpen, setDealershipOpen] = useState(false);
@@ -631,7 +639,10 @@ export default function App() {
             weather: nextProfile.weather,
           };
           try {
-            localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(synced));
+            localStorage.setItem(
+              SETTINGS_STORAGE_KEY,
+              JSON.stringify({ ...synced, settingsSchemaVersion: 2 })
+            );
           } catch {
             // ignore
           }
@@ -654,8 +665,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    engineRef.current?.setKeyCapturePaused(settingsOpen || progressionOpen);
-  }, [settingsOpen, progressionOpen]);
+    engineRef.current?.setKeyCapturePaused(settingsOpen || progressionOpen || hudEditorOpen);
+  }, [settingsOpen, progressionOpen, hudEditorOpen]);
 
   const handleToggleMute = () => {
     updateAndPersistSettings({ muted: !settings.muted });
@@ -971,7 +982,7 @@ export default function App() {
       )}
 
       {/* Active Mode UI */}
-      {hud.mode === 'START_MENU' && (
+      {!hudEditorOpen && hud.mode === 'START_MENU' && (
         <StartMenuOverlay
           profile={profile}
           onStart={() => {
@@ -983,13 +994,14 @@ export default function App() {
         />
       )}
 
-      {(hud.mode === 'WALKING' || hud.mode === 'PARKING_DRIVE') && (
+      {!hudEditorOpen && (hud.mode === 'WALKING' || hud.mode === 'PARKING_DRIVE') && (
         <ShowroomHUD
           profile={profile}
           hud={hud}
           muted={settings.muted}
           speedUnits={settings.speedUnits}
           keybindings={settings.keybindings}
+          customHud={settings.customHud}
           tuningOpen={tuningOpen}
           dealershipOpen={dealershipOpen}
           toastMessage={toastMessage}
@@ -1028,7 +1040,7 @@ export default function App() {
         />
       )}
 
-      {hud.mode === 'HIGHWAY' && (
+      {!hudEditorOpen && hud.mode === 'HIGHWAY' && (
         <HighwayHUD
           profile={profile}
           settings={settings}
@@ -1067,6 +1079,12 @@ export default function App() {
         onClose={() => setSettingsOpen(false)}
         onUpdateSettings={updateAndPersistSettings}
         onResetProgress={handleResetProgress}
+        onOpenHudEditor={(editorMode) => {
+          engineRef.current?.exitPointerLock();
+          setSettingsOpen(false);
+          setHudEditorInitialMode(editorMode);
+          setHudEditorOpen(true);
+        }}
         onReturnToMenu={
           hud.mode !== 'START_MENU'
             ? () => {
@@ -1085,6 +1103,21 @@ export default function App() {
         onJoinOnlineRoom={(opts) => engineRef.current?.joinOnlineRoom(opts)}
         radioStation={hud.radioStation}
         onSetRadioStation={(station) => engineRef.current?.setRadioStation(station)}
+      />
+
+      {/* Interactive On-Screen Custom HUD Visual Editor */}
+      <CustomHudEditor
+        open={hudEditorOpen}
+        initialMode={hudEditorInitialMode}
+        customHud={settings.customHud}
+        speedUnits={settings.speedUnits}
+        activeTx={profile.cars[profile.activeCarId]?.transmission ?? profile.transmission}
+        onSave={(nextCustomHud) => {
+          updateAndPersistSettings({ customHud: nextCustomHud });
+          setHudEditorOpen(false);
+          showToast('Custom HUD guardado correctamente.');
+        }}
+        onCancel={() => setHudEditorOpen(false)}
       />
     </main>
   );

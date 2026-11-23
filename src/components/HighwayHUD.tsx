@@ -8,6 +8,7 @@ import {
   Crown,
   Flag,
   Flame,
+  Lightbulb,
   Radio,
   Settings,
   Swords,
@@ -18,9 +19,11 @@ import {
   formatPrimaryKeyLabel,
   GameSettings,
   getRankFromXp,
+  HudElementLayout,
   HudSnapshot,
   SaveProfile,
 } from '../game/types';
+import { TachometerDial } from './TachometerDial';
 
 interface HighwayHUDProps {
   profile: SaveProfile;
@@ -39,38 +42,14 @@ interface HighwayHUDProps {
   onTouchControl: (key: 'throttle' | 'brake' | 'left' | 'right' | 'nitro', active: boolean) => void;
 }
 
-const DIAL_START_DEG = 135;
-const DIAL_SWEEP_DEG = 270;
-
-function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
-  const rad = (angleDeg * Math.PI) / 180;
+function getHudElementStyle(layout: HudElementLayout): React.CSSProperties {
   return {
-    x: cx + r * Math.cos(rad),
-    y: cy + r * Math.sin(rad),
+    left: `${layout.x}%`,
+    top: `${layout.y}%`,
+    opacity: layout.opacity,
+    transform: `translate(-50%, -50%) scale(${layout.scale})`,
+    touchAction: 'none',
   };
-}
-
-function describeArc(
-  cx: number,
-  cy: number,
-  r: number,
-  startAngleDeg: number,
-  endAngleDeg: number,
-  clockwise = true
-): string {
-  const diff = Math.abs(endAngleDeg - startAngleDeg);
-  if (diff < 0.25) return '';
-  const start = polarToCartesian(cx, cy, r, startAngleDeg);
-  const end = polarToCartesian(cx, cy, r, endAngleDeg);
-  const largeArc = diff > 180 ? 1 : 0;
-  const sweepFlag = clockwise ? 1 : 0;
-  return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${r} ${r} 0 ${largeArc} ${sweepFlag} ${end.x.toFixed(2)} ${end.y.toFixed(2)}`;
-}
-
-function formatGear(gear: number): string {
-  if (gear < 0) return 'R';
-  if (gear === 0) return 'N';
-  return String(gear);
 }
 
 export const HighwayHUD: React.FC<HighwayHUDProps> = ({
@@ -132,51 +111,7 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
   const radioKey = formatPrimaryKeyLabel(settings.keybindings.toggleRadio);
   const flashKey = formatPrimaryKeyLabel(settings.keybindings.flashHeadlights);
   const pilotRank = getRankFromXp(profile.xp);
-
-  // Tachometer calculations (scales cleanly from 8,000 RPM up to 11,000 RPM with CDI Racing)
-  const dialMaxRpm = Math.max(8000, Math.ceil(hud.maxRpm / 1000) * 1000);
-  const dialRedlineRpm = Math.max(5500, hud.maxRpm - 900);
-  const majorTickCount = Math.round(dialMaxRpm / 1000);
-  const totalHalfTicks = majorTickCount * 2 + 1;
-
-  const clampedRpm = Math.min(dialMaxRpm, Math.max(0, hud.rpm));
-  const rpmRatio = clampedRpm / dialMaxRpm;
-  const needleDeg = DIAL_START_DEG + rpmRatio * DIAL_SWEEP_DEG;
-  const redlineStartDeg = DIAL_START_DEG + (dialRedlineRpm / dialMaxRpm) * DIAL_SWEEP_DEG;
-  const dialEndDeg = DIAL_START_DEG + DIAL_SWEEP_DEG;
-
-  const isRedline = clampedRpm >= dialRedlineRpm;
-  const turboSpooling = clampedRpm >= 4200;
-
-  // Main RPM arc & redline arc (r = 90)
-  const rpmBgPath = describeArc(120, 120, 90, DIAL_START_DEG, dialEndDeg);
-  const redlineTrackPath = describeArc(120, 120, 90, redlineStartDeg, dialEndDeg);
-  const rpmActivePath = describeArc(
-    120,
-    120,
-    90,
-    DIAL_START_DEG,
-    Math.max(DIAL_START_DEG + 0.5, needleDeg)
-  );
-
-  // Lateral Nitro curved gauge on outer-left bezel (144° up to 216°)
-  const nitroStartDeg = 144;
-  const nitroMaxDeg = 216;
-  const nitroRatio = Math.min(1, Math.max(0, hud.nitro / 100));
-  const nitroFillDeg = nitroStartDeg + (nitroMaxDeg - nitroStartDeg) * nitroRatio;
-  const nitroTrackPath = describeArc(120, 120, 108, nitroStartDeg, nitroMaxDeg);
-  const nitroFillPath = describeArc(
-    120,
-    120,
-    108,
-    nitroStartDeg,
-    Math.max(nitroStartDeg + 0.5, nitroFillDeg)
-  );
-
-  // Needle tip & tail coordinates
-  const needleTip = polarToCartesian(120, 120, 92, needleDeg);
-  const needleInner = polarToCartesian(120, 120, 44, needleDeg);
-  const gearLabel = formatGear(hud.gear);
+  const customHud = settings.customHud;
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-3 md:p-5">
@@ -278,6 +213,48 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
               </span>
               <span className="text-slate-500">·</span>
               <span className="font-telemetry font-bold text-emerald-400">+$18,000</span>
+            </div>
+          )}
+
+          {/* Compact Mobile Quick Toggles Bar (Top-Left, keeps bottom HUD 100% free for Custom HUD) */}
+          {isTouchDevice && (
+            <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 border border-white/10 bg-[#090b10]/92 p-1 shadow-lg">
+              <button
+                type="button"
+                onClick={onToggleTransmission}
+                className="border border-white/15 bg-[#141923] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-300 active:bg-slate-700 cursor-pointer"
+              >
+                {activeTx === 'AT' ? 'Automático' : 'Manual'}
+              </button>
+              <button
+                type="button"
+                onClick={onToggleTcs}
+                className={`border px-2 py-1 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${
+                  settings.tcsEnabled
+                    ? 'border-sky-400/50 bg-sky-500/20 text-sky-200'
+                    : 'border-white/15 bg-[#141923] text-slate-400'
+                }`}
+              >
+                TCS
+              </button>
+              <button
+                type="button"
+                onClick={onToggleAbs}
+                className={`border px-2 py-1 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${
+                  settings.absEnabled
+                    ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200'
+                    : 'border-white/15 bg-[#141923] text-slate-400'
+                }`}
+              >
+                ABS
+              </button>
+              <button
+                type="button"
+                onClick={onExitHighway}
+                className="border border-red-400/35 bg-[#201015] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-200 active:bg-red-700 cursor-pointer"
+              >
+                Salida
+              </button>
             </div>
           )}
         </div>
@@ -405,85 +382,13 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
         )}
       </div>
 
-      {/* Bottom HUD: Circular Assetto Corsa Tachometer (bottom-right on desktop, center on mobile touch) */}
-      <div className="flex items-end justify-between gap-3">
-        {/* Left: Touch Quick Bar (Automático/Manual, TCS, ABS, Salida) + Steering Pads (Mobile ONLY) */}
-        {isTouchDevice ? (
-          <div className="pointer-events-auto flex flex-col items-start gap-2">
-            <div className="flex flex-wrap items-center gap-1.5 border border-white/10 bg-[#090b10]/92 p-1 shadow-lg">
-              <button
-                type="button"
-                onClick={onToggleTransmission}
-                className="border border-white/15 bg-[#141923] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-300 active:bg-slate-700 cursor-pointer"
-              >
-                {activeTx === 'AT' ? 'Automático' : 'Manual'}
-              </button>
-              <button
-                type="button"
-                onClick={onToggleTcs}
-                className={`border px-2 py-1 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${
-                  settings.tcsEnabled
-                    ? 'border-sky-400/50 bg-sky-500/20 text-sky-200'
-                    : 'border-white/15 bg-[#141923] text-slate-400'
-                }`}
-              >
-                TCS
-              </button>
-              <button
-                type="button"
-                onClick={onToggleAbs}
-                className={`border px-2 py-1 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${
-                  settings.absEnabled
-                    ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200'
-                    : 'border-white/15 bg-[#141923] text-slate-400'
-                }`}
-              >
-                ABS
-              </button>
-              <button
-                type="button"
-                onClick={onExitHighway}
-                className="border border-red-400/35 bg-[#201015] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-200 active:bg-red-700 cursor-pointer"
-              >
-                Salida
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onPointerDown={() => onTouchControl('left', true)}
-                onPointerUp={() => onTouchControl('left', false)}
-                onPointerLeave={() => onTouchControl('left', false)}
-                onPointerCancel={() => onTouchControl('left', false)}
-                className="flex h-14 w-14 items-center justify-center border border-white/15 bg-[#090b10]/92 text-white active:bg-[#e10600] cursor-pointer"
-                aria-label="Girar izquierda"
-              >
-                <ChevronLeft className="h-7 w-7" />
-              </button>
-              <button
-                type="button"
-                onPointerDown={() => onTouchControl('right', true)}
-                onPointerUp={() => onTouchControl('right', false)}
-                onPointerLeave={() => onTouchControl('right', false)}
-                onPointerCancel={() => onTouchControl('right', false)}
-                className="flex h-14 w-14 items-center justify-center border border-white/15 bg-[#090b10]/92 text-white active:bg-[#e10600] cursor-pointer"
-                aria-label="Girar derecha"
-              >
-                <ChevronRight className="h-7 w-7" />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div />
-        )}
-
-        {/* Circular Assetto Corsa / Motorsport Analog-Digital Tachometer */}
+      {/* ==================== CUSTOMIZABLE HUD ELEMENTS (TACHOMETER & TOUCH CONTROLS) ==================== */}
+      <div className="pointer-events-none relative flex-1">
+        {/* Customizable Circular Tachometer */}
         {settings.showSpeedometer && (
           <div
-            className={`flex flex-col items-center ${
-              isTouchDevice ? '' : 'ml-auto'
-            }`}
+            className="pointer-events-none fixed z-20 flex flex-col items-center select-none"
+            style={getHudElementStyle(customHud.speedometer)}
           >
             {/* Extreme "No Hesi" Combo x1..x25 + Pending Cash at Risk */}
             {(hud.combo > 0 || hud.pendingCash > 0) && (
@@ -510,390 +415,123 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
               </div>
             )}
 
-            <div className="relative h-[228px] w-[228px] md:h-[246px] md:w-[246px] select-none">
-              <svg
-                viewBox="0 0 240 240"
-                className="h-full w-full drop-shadow-[0_12px_28px_rgba(0,0,0,0.75)]"
-                role="img"
-                aria-label={`Tacómetro ${displaySpeed} ${speedUnitLabel}, marcha ${gearLabel}, ${Math.round(clampedRpm)} RPM`}
-              >
-                <defs>
-                  <radialGradient id="acDialBg" cx="50%" cy="48%" r="54%">
-                    <stop offset="0%" stopColor="#141923" stopOpacity="0.96" />
-                    <stop offset="78%" stopColor="#090b10" stopOpacity="0.96" />
-                    <stop offset="100%" stopColor="#05070b" stopOpacity="0.98" />
-                  </radialGradient>
-                  <linearGradient id="acRpmSweep" x1="0%" y1="100%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#e2e8f0" />
-                    <stop offset="65%" stopColor="#f59e0b" />
-                    <stop offset="100%" stopColor="#e10600" />
-                  </linearGradient>
-                </defs>
-
-                {/* Outer Dial Housing */}
-                <circle
-                  cx="120"
-                  cy="120"
-                  r="102"
-                  fill="url(#acDialBg)"
-                  stroke="rgba(255,255,255,0.12)"
-                  strokeWidth="1.5"
-                />
-                <circle
-                  cx="120"
-                  cy="120"
-                  r="97"
-                  fill="none"
-                  stroke="rgba(255,255,255,0.05)"
-                  strokeWidth="1"
-                />
-
-                {/* Lateral NITRO Arc Gauge (Left Outer Bezel) */}
-                {nitroTrackPath && (
-                  <path
-                    d={nitroTrackPath}
-                    fill="none"
-                    stroke="rgba(56,189,248,0.16)"
-                    strokeWidth="5"
-                    strokeLinecap="round"
-                  />
-                )}
-                {nitroFillPath && hud.nitro > 0 && (
-                  <path
-                    d={nitroFillPath}
-                    fill="none"
-                    stroke="#38bdf8"
-                    strokeWidth="5"
-                    strokeLinecap="round"
-                  />
-                )}
-
-                {/* RPM Track & Redline Background Arc */}
-                <path
-                  d={rpmBgPath}
-                  fill="none"
-                  stroke="rgba(255,255,255,0.08)"
-                  strokeWidth="7"
-                  strokeLinecap="butt"
-                />
-                <path
-                  d={redlineTrackPath}
-                  fill="none"
-                  stroke="rgba(225,6,0,0.34)"
-                  strokeWidth="7"
-                  strokeLinecap="butt"
-                />
-
-                {/* Active Illuminated RPM Arc */}
-                {rpmActivePath && (
-                  <path
-                    d={rpmActivePath}
-                    fill="none"
-                    stroke={isRedline ? '#ff1e1e' : 'url(#acRpmSweep)'}
-                    strokeWidth="7"
-                    strokeLinecap="butt"
-                  />
-                )}
-
-                {/* Major & Minor RPM Ticks (0 .. dialMaxRpm) */}
-                {Array.from({ length: totalHalfTicks }).map((_, idx) => {
-                  const rpmVal = idx * 500;
-                  const isMajor = idx % 2 === 0;
-                  const isRed = rpmVal >= dialRedlineRpm;
-                  const deg = DIAL_START_DEG + (rpmVal / dialMaxRpm) * DIAL_SWEEP_DEG;
-                  const pOuter = polarToCartesian(120, 120, 95, deg);
-                  const pInner = polarToCartesian(120, 120, isMajor ? 83 : 88, deg);
-                  const pLabel = polarToCartesian(120, 120, 70, deg);
-
-                  return (
-                    <g key={rpmVal}>
-                      <line
-                        x1={pOuter.x}
-                        y1={pOuter.y}
-                        x2={pInner.x}
-                        y2={pInner.y}
-                        stroke={
-                          isRed
-                            ? '#ef4444'
-                            : isMajor
-                              ? 'rgba(241,245,249,0.88)'
-                              : 'rgba(148,163,184,0.45)'
-                        }
-                        strokeWidth={isMajor ? 2 : 1}
-                      />
-                      {isMajor && (
-                        <text
-                          x={pLabel.x}
-                          y={pLabel.y}
-                          textAnchor="middle"
-                          dominantBaseline="central"
-                          fill={isRed ? '#f87171' : '#cbd5e1'}
-                          fontSize="11"
-                          fontWeight="700"
-                          className="font-telemetry"
-                        >
-                          {idx / 2}
-                        </text>
-                      )}
-                    </g>
-                  );
-                })}
-
-                {/* Real-Time Animated Red Needle */}
-                <line
-                  x1={needleInner.x}
-                  y1={needleInner.y}
-                  x2={needleTip.x}
-                  y2={needleTip.y}
-                  stroke="#e10600"
-                  strokeWidth="2.8"
-                  strokeLinecap="round"
-                />
-                <circle
-                  cx={needleTip.x}
-                  cy={needleTip.y}
-                  r="1.8"
-                  fill="#ff4d4d"
-                />
-
-                {/* Clean Inner Telemetry Disc */}
-                <circle
-                  cx="120"
-                  cy="120"
-                  r="52"
-                  fill="#080a0f"
-                  stroke="rgba(255,255,255,0.08)"
-                  strokeWidth="1"
-                />
-
-                {/* x1000 RPM sub-label */}
-                <text
-                  x="120"
-                  y="83"
-                  textAnchor="middle"
-                  fill="#64748b"
-                  fontSize="7.5"
-                  fontWeight="600"
-                  letterSpacing="1.2"
-                >
-                  RPM x1000
-                </text>
-
-                {/* Large Central Digital Speed */}
-                <text
-                  x="120"
-                  y="112"
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill="#ffffff"
-                  fontSize="36"
-                  fontWeight="800"
-                  className="font-telemetry"
-                >
-                  {displaySpeed}
-                </text>
-                <text
-                  x="120"
-                  y="134"
-                  textAnchor="middle"
-                  fill="#94a3b8"
-                  fontSize="9"
-                  fontWeight="700"
-                  letterSpacing="1.5"
-                >
-                  {speedUnitLabel}
-                </text>
-
-                {/* Central Gear & AT/MT Indicator */}
-                <rect
-                  x="96"
-                  y="145"
-                  width="48"
-                  height="22"
-                  rx="2"
-                  fill="rgba(255,255,255,0.04)"
-                  stroke={isRedline ? '#e10600' : 'rgba(255,255,255,0.14)'}
-                  strokeWidth="1"
-                />
-                <text
-                  x="111"
-                  y="156.5"
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill={isRedline ? '#ff3b30' : '#e10600'}
-                  fontSize="14"
-                  fontWeight="800"
-                  className="font-telemetry"
-                >
-                  {gearLabel}
-                </text>
-                <line
-                  x1="122"
-                  y1="149"
-                  x2="122"
-                  y2="163"
-                  stroke="rgba(255,255,255,0.14)"
-                  strokeWidth="1"
-                />
-                <text
-                  x="133"
-                  y="156.5"
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill="#cbd5e1"
-                  fontSize="8.5"
-                  fontWeight="700"
-                  className="font-telemetry"
-                >
-                  {activeTx}
-                </text>
-
-                {/* Bottom Bezel Tell-Tales: Headlights + Turbo + TCS + CDI */}
-                <g transform="translate(80, 184)">
-                  {/* Headlights Tell-Tale (ON) */}
-                  <path
-                    d="M4 4 C1 4 0 8 4 8 L7 8 L7 4 Z"
-                    fill="#34d399"
-                  />
-                  <line x1="8.5" y1="4.2" x2="12" y2="3.2" stroke="#34d399" strokeWidth="1.2" />
-                  <line x1="8.5" y1="6" x2="12" y2="6" stroke="#34d399" strokeWidth="1.2" />
-                  <line x1="8.5" y1="7.8" x2="12" y2="8.8" stroke="#34d399" strokeWidth="1.2" />
-
-                  {/* Turbo Boost Tell-Tale */}
-                  <text
-                    x="30"
-                    y="7.5"
-                    textAnchor="middle"
-                    fill={turboSpooling ? '#f59e0b' : '#475569'}
-                    fontSize="7.5"
-                    fontWeight="800"
-                    letterSpacing="0.8"
-                    className="font-telemetry"
-                  >
-                    TURBO
-                  </text>
-
-                  {/* TCS Tell-Tale */}
-                  <text
-                    x="55"
-                    y="7.5"
-                    textAnchor="middle"
-                    fill={settings.tcsEnabled ? '#38bdf8' : '#475569'}
-                    fontSize="7.5"
-                    fontWeight="700"
-                    letterSpacing="0.6"
-                    className="font-telemetry"
-                  >
-                    TCS
-                  </text>
-
-                  {/* CDI Racing Tell-Tale */}
-                  <text
-                    x="76"
-                    y="7.5"
-                    textAnchor="middle"
-                    fill={
-                      hud.cdiRacing
-                        ? hud.revLimiterActive
-                          ? '#ff2a2a'
-                          : '#f59e0b'
-                        : '#334155'
-                    }
-                    fontSize="7.5"
-                    fontWeight="800"
-                    letterSpacing="0.6"
-                    className="font-telemetry"
-                  >
-                    CDI
-                  </text>
-                </g>
-
-                {/* NITRO % Readout beside Left Arc */}
-                <text
-                  x="17"
-                  y="153"
-                  textAnchor="middle"
-                  fill="#38bdf8"
-                  fontSize="8.5"
-                  fontWeight="800"
-                  className="font-telemetry"
-                >
-                  N2O
-                </text>
-                <text
-                  x="17"
-                  y="163"
-                  textAnchor="middle"
-                  fill="#bae6fd"
-                  fontSize="8"
-                  fontWeight="700"
-                  className="font-telemetry"
-                >
-                  {hud.nitro}%
-                </text>
-              </svg>
-            </div>
+            <TachometerDial
+              speedDisplay={displaySpeed}
+              speedUnitLabel={speedUnitLabel}
+              rpm={hud.rpm}
+              maxRpm={hud.maxRpm}
+              gear={hud.gear}
+              nitro={hud.nitro}
+              activeTx={activeTx}
+              tcsEnabled={settings.tcsEnabled}
+              cdiRacing={hud.cdiRacing}
+              revLimiterActive={hud.revLimiterActive}
+              styleConfig={customHud.tachometerStyle}
+            />
           </div>
         )}
 
-        {/* Right: Pedals & Manual Shift Controls (Mobile / Touch Devices ONLY) */}
+        {/* Customizable Touch Controls (Mobile / Touch Devices ONLY) */}
         {isTouchDevice && (
-          <div className="pointer-events-auto flex flex-col items-end gap-2">
+          <>
+            <button
+              type="button"
+              style={getHudElementStyle(customHud.steerLeft)}
+              onPointerDown={() => onTouchControl('left', true)}
+              onPointerUp={() => onTouchControl('left', false)}
+              onPointerLeave={() => onTouchControl('left', false)}
+              onPointerCancel={() => onTouchControl('left', false)}
+              className="pointer-events-auto fixed z-20 flex h-14 w-14 touch-none select-none items-center justify-center border border-white/15 bg-[#090b10]/92 text-white active:bg-[#e10600] cursor-pointer"
+              aria-label="Girar izquierda"
+            >
+              <ChevronLeft className="h-7 w-7" />
+            </button>
+
+            <button
+              type="button"
+              style={getHudElementStyle(customHud.steerRight)}
+              onPointerDown={() => onTouchControl('right', true)}
+              onPointerUp={() => onTouchControl('right', false)}
+              onPointerLeave={() => onTouchControl('right', false)}
+              onPointerCancel={() => onTouchControl('right', false)}
+              className="pointer-events-auto fixed z-20 flex h-14 w-14 touch-none select-none items-center justify-center border border-white/15 bg-[#090b10]/92 text-white active:bg-[#e10600] cursor-pointer"
+              aria-label="Girar derecha"
+            >
+              <ChevronRight className="h-7 w-7" />
+            </button>
+
+            <button
+              type="button"
+              style={getHudElementStyle(customHud.headlights)}
+              onClick={onFlashHeadlights}
+              className="pointer-events-auto fixed z-20 flex h-12 w-14 touch-none select-none flex-col items-center justify-center border border-sky-400/40 bg-[#0b1524]/92 text-[10px] font-bold text-sky-200 active:bg-sky-500 active:text-slate-950 cursor-pointer"
+              aria-label="Destellar luces / Retar duelo"
+            >
+              <Lightbulb className="h-3.5 w-3.5 mb-0.5 text-sky-300" />
+              <span>LUCES</span>
+            </button>
+
+            <button
+              type="button"
+              style={getHudElementStyle(customHud.nitro)}
+              onPointerDown={() => onTouchControl('nitro', true)}
+              onPointerUp={() => onTouchControl('nitro', false)}
+              onPointerLeave={() => onTouchControl('nitro', false)}
+              onPointerCancel={() => onTouchControl('nitro', false)}
+              className="pointer-events-auto fixed z-20 flex h-14 px-3.5 touch-none select-none flex-col items-center justify-center border border-sky-400/40 bg-[#0d2238]/92 text-xs font-extrabold text-sky-200 active:bg-sky-500 active:text-slate-950 cursor-pointer"
+              aria-label="Nitro"
+            >
+              <Zap className="h-3.5 w-3.5 mb-0.5" />
+              <span>NITRO</span>
+            </button>
+
+            <button
+              type="button"
+              style={getHudElementStyle(customHud.brake)}
+              onPointerDown={() => onTouchControl('brake', true)}
+              onPointerUp={() => onTouchControl('brake', false)}
+              onPointerLeave={() => onTouchControl('brake', false)}
+              onPointerCancel={() => onTouchControl('brake', false)}
+              className="pointer-events-auto fixed z-20 flex h-14 px-3.5 touch-none select-none flex-col items-center justify-center border border-white/15 bg-[#090b10]/92 text-xs font-bold text-slate-200 active:bg-amber-600 cursor-pointer"
+              aria-label="Freno y Reversa"
+            >
+              <span>FRENO</span>
+            </button>
+
+            <button
+              type="button"
+              style={getHudElementStyle(customHud.gas)}
+              onPointerDown={() => onTouchControl('throttle', true)}
+              onPointerUp={() => onTouchControl('throttle', false)}
+              onPointerLeave={() => onTouchControl('throttle', false)}
+              onPointerCancel={() => onTouchControl('throttle', false)}
+              className="pointer-events-auto fixed z-20 flex h-14 px-5 touch-none select-none flex-col items-center justify-center border border-red-400/40 bg-[#e10600]/92 text-xs font-extrabold text-white active:bg-red-500 cursor-pointer"
+              aria-label="Acelerador"
+            >
+              <span>GAS</span>
+            </button>
+
             {activeTx === 'MT' && (
-              <div className="flex items-center gap-1.5">
+              <>
                 <button
                   type="button"
+                  style={getHudElementStyle(customHud.shiftDown)}
                   onClick={() => onShiftGear(-1)}
-                  className="border border-white/15 bg-[#090b10]/92 px-3 py-1.5 text-xs font-bold text-slate-200 active:bg-slate-700 cursor-pointer"
+                  className="pointer-events-auto fixed z-20 flex h-11 px-3 touch-none select-none items-center justify-center border border-white/15 bg-[#090b10]/92 text-xs font-bold text-slate-200 active:bg-slate-700 cursor-pointer whitespace-nowrap"
                 >
                   Gear - [{shiftDownKey}]
                 </button>
                 <button
                   type="button"
+                  style={getHudElementStyle(customHud.shiftUp)}
                   onClick={() => onShiftGear(1)}
-                  className="border border-white/15 bg-[#090b10]/92 px-3 py-1.5 text-xs font-bold text-slate-200 active:bg-slate-700 cursor-pointer"
+                  className="pointer-events-auto fixed z-20 flex h-11 px-3 touch-none select-none items-center justify-center border border-white/15 bg-[#090b10]/92 text-xs font-bold text-slate-200 active:bg-slate-700 cursor-pointer whitespace-nowrap"
                 >
                   Gear + [{shiftUpKey}]
                 </button>
-              </div>
+              </>
             )}
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onPointerDown={() => onTouchControl('nitro', true)}
-                onPointerUp={() => onTouchControl('nitro', false)}
-                onPointerLeave={() => onTouchControl('nitro', false)}
-                onPointerCancel={() => onTouchControl('nitro', false)}
-                className="flex h-14 px-3.5 flex-col items-center justify-center border border-sky-400/40 bg-[#0d2238]/92 text-xs font-extrabold text-sky-200 active:bg-sky-500 active:text-slate-950 cursor-pointer"
-              >
-                <Zap className="h-3.5 w-3.5 mb-0.5" />
-                <span>NITRO</span>
-              </button>
-
-              <button
-                type="button"
-                onPointerDown={() => onTouchControl('brake', true)}
-                onPointerUp={() => onTouchControl('brake', false)}
-                onPointerLeave={() => onTouchControl('brake', false)}
-                onPointerCancel={() => onTouchControl('brake', false)}
-                className="flex h-14 px-3.5 flex-col items-center justify-center border border-white/15 bg-[#090b10]/92 text-xs font-bold text-slate-200 active:bg-amber-600 cursor-pointer"
-              >
-                <span>FRENO</span>
-              </button>
-
-              <button
-                type="button"
-                onPointerDown={() => onTouchControl('throttle', true)}
-                onPointerUp={() => onTouchControl('throttle', false)}
-                onPointerLeave={() => onTouchControl('throttle', false)}
-                onPointerCancel={() => onTouchControl('throttle', false)}
-                className="flex h-14 px-5 flex-col items-center justify-center border border-red-400/40 bg-[#e10600]/92 text-xs font-extrabold text-white active:bg-red-500 cursor-pointer"
-              >
-                <span>GAS</span>
-              </button>
-            </div>
-          </div>
+          </>
         )}
       </div>
     </div>
