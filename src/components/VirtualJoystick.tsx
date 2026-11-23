@@ -151,10 +151,18 @@ export const VirtualJoystick: React.FC<VirtualJoystickProps> = ({ onTouchWalk, l
 
   const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    if (activeTouchIdRef.current === null) return;
+    const touchId = activeTouchIdRef.current;
+    if (touchId === null) return;
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (t.identifier === touchId) {
+        updateFromClientPos(t.clientX, t.clientY);
+        return;
+      }
+    }
     for (let i = 0; i < e.touches.length; i++) {
       const t = e.touches[i];
-      if (t.identifier === activeTouchIdRef.current) {
+      if (t.identifier === touchId) {
         updateFromClientPos(t.clientX, t.clientY);
         return;
       }
@@ -163,9 +171,10 @@ export const VirtualJoystick: React.FC<VirtualJoystickProps> = ({ onTouchWalk, l
 
   const handleTouchEndOrCancel = (e: React.TouchEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    if (activeTouchIdRef.current === null) return;
+    const touchId = activeTouchIdRef.current;
+    if (touchId === null) return;
     for (let i = 0; i < e.changedTouches.length; i++) {
-      if (e.changedTouches[i].identifier === activeTouchIdRef.current) {
+      if (e.changedTouches[i].identifier === touchId) {
         releaseJoystick();
         return;
       }
@@ -200,6 +209,8 @@ export const VirtualJoystick: React.FC<VirtualJoystickProps> = ({ onTouchWalk, l
       onTouchEnd={handleTouchEndOrCancel}
       onTouchCancel={handleTouchEndOrCancel}
       onMouseDown={handleMouseDown}
+      onPointerDown={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.preventDefault()}
       style={positionedStyle}
       className={`pointer-events-auto fixed z-20 flex h-[120px] w-[120px] touch-none select-none items-center justify-center rounded-full border border-white/15 bg-slate-950/75 shadow-2xl backdrop-blur-md cursor-grab active:cursor-grabbing ${
         layout ? '' : 'bottom-6 left-6'

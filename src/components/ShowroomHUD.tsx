@@ -5,11 +5,15 @@ import {
   Camera,
   Car,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Crosshair,
   Eye,
   Flag,
   Globe,
+  Lightbulb,
   Lock,
+  LogOut,
   Radio,
   RotateCcw,
   Search,
@@ -20,7 +24,10 @@ import {
   VolumeX,
   Wrench,
   X,
+  Zap,
 } from 'lucide-react';
+import { MultiTouchHoldButton, useTouchControlsActive } from './MultiTouchButton';
+import { TachometerDial } from './TachometerDial';
 import { VirtualJoystick } from './VirtualJoystick';
 import {
   CAR_CATALOG,
@@ -57,6 +64,7 @@ import {
   SPOILER_OPTIONS,
   StudioAnglePreset,
   TIRE_PROFILE_OPTIONS,
+  TouchControlsMode,
   TransmissionMode,
   UNDERGLOW_PALETTE,
   UpgradePartKey,
@@ -87,6 +95,9 @@ interface ShowroomHUDProps {
   hud: HudSnapshot;
   muted: boolean;
   speedUnits: SpeedUnits;
+  showSpeedometer: boolean;
+  tcsEnabled: boolean;
+  touchControlsMode: TouchControlsMode;
   keybindings: Keybindings;
   customHud: CustomHudLayout;
   tuningOpen: boolean;
@@ -98,6 +109,11 @@ interface ShowroomHUDProps {
   onEnterCar: () => void;
   onExitCar: () => void;
   onTogglePointerLock: () => void;
+  onCycleCamera: () => void;
+  onFlashHeadlights: () => void;
+  onToggleTransmission: () => void;
+  onShiftGear: (delta: 1 | -1) => void;
+  onEnterTuningFromCar: () => void;
   onOpenSettings: () => void;
   onBuyOrSelectCar: (carId: string) => void;
   onSpawnCarInFront: (carId: string) => void;
@@ -112,6 +128,7 @@ interface ShowroomHUDProps {
   onPreviewDealershipCar: (carId: string | null) => void;
   onRevDealershipCar: (carId: string) => void;
   onTouchWalk: (key: 'throttle' | 'brake' | 'left' | 'right', active: boolean) => void;
+  onTouchControl: (key: 'throttle' | 'brake' | 'left' | 'right' | 'nitro', active: boolean) => void;
   onOpenProgression: () => void;
   onOpenOnlineSettings: () => void;
   onStartContract: () => void;
@@ -217,6 +234,9 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
   hud,
   muted,
   speedUnits,
+  showSpeedometer,
+  tcsEnabled,
+  touchControlsMode,
   keybindings,
   customHud,
   tuningOpen,
@@ -228,6 +248,11 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
   onEnterCar,
   onExitCar,
   onTogglePointerLock,
+  onCycleCamera,
+  onFlashHeadlights,
+  onToggleTransmission,
+  onShiftGear,
+  onEnterTuningFromCar,
   onOpenSettings,
   onBuyOrSelectCar,
   onSpawnCarInFront,
@@ -242,12 +267,14 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
   onPreviewDealershipCar,
   onRevDealershipCar,
   onTouchWalk,
+  onTouchControl,
   onOpenProgression,
   onOpenOnlineSettings,
   onStartContract,
   onLikeNearbyPlayer,
   onCycleRadio,
 }) => {
+  const showTouchControls = useTouchControlsActive(touchControlsMode);
   const [tuningTab, setTuningTab] = useState<'perf' | 'cosmetic' | 'paint'>('perf');
   const [garageOpen, setGarageOpen] = useState(false);
   const [previewCarId, setPreviewCarId] = useState<string | null>(null);
@@ -296,8 +323,20 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
   const enterExitKeyLabel = formatPrimaryKeyLabel(keybindings.enterExitCar);
   const pointerLockKeyLabel = formatPrimaryKeyLabel(keybindings.togglePointerLock);
   const radioKeyLabel = formatPrimaryKeyLabel(keybindings.toggleRadio);
+  const shiftUpKeyLabel = formatPrimaryKeyLabel(keybindings.shiftUp);
+  const shiftDownKeyLabel = formatPrimaryKeyLabel(keybindings.shiftDown);
   const pilotRank = getRankFromXp(profile.xp);
   const canClaimDaily = profile.lastDailyClaimDate !== getTodayDateKey();
+  const activeTx = activeState.transmission ?? profile.transmission;
+  const cameraLabel =
+    hud.cameraPreset === 'HOOD'
+      ? 'Cabina'
+      : hud.cameraPreset === 'BUMPER'
+        ? 'Frontal'
+        : 'Ext.';
+  const stopTouchPropagation = (e: React.TouchEvent | React.PointerEvent) => {
+    e.stopPropagation();
+  };
 
   const nearbyDealershipSpec = hud.nearbyDealershipCarId
     ? CAR_CATALOG[hud.nearbyDealershipCarId]
@@ -376,15 +415,67 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex flex-col justify-between p-4 md:p-6">
-      {/* ==================== TOP-RIGHT ONLY: CASH + MIS CARROS (2D CAR SVG) + FREE CAM + GEAR ==================== */}
-      <div className="flex items-start justify-end gap-2">
-        {toastMessage && (
-          <div className="mr-auto border border-white/15 bg-[#090b10]/94 px-3.5 py-1.5 text-[11px] font-medium tracking-wider text-white uppercase shadow-xl">
+      {/* ==================== TOP BAR: PARKING-DRIVE QUICK BAR (MOBILE) + TOP-RIGHT HUD ==================== */}
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        {hud.mode === 'PARKING_DRIVE' && !tuningOpen && !dealershipOpen && showTouchControls ? (
+          <div
+            onTouchStart={stopTouchPropagation}
+            onPointerDown={stopTouchPropagation}
+            className="pointer-events-auto flex flex-wrap items-center gap-1.5 border border-white/15 bg-[#090b10]/92 p-1 shadow-xl"
+          >
+            <button
+              type="button"
+              onClick={onExitCar}
+              className="flex items-center gap-1 border border-red-400/45 bg-[#241016] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-red-200 active:bg-red-700 cursor-pointer"
+              aria-label="Bajar del coche"
+            >
+              <LogOut className="h-3 w-3" />
+              Bajar
+            </button>
+            <button
+              type="button"
+              onClick={onCycleCamera}
+              className="flex items-center gap-1 border border-sky-400/40 bg-sky-500/15 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-sky-200 active:bg-sky-500 active:text-slate-950 cursor-pointer"
+              aria-label="Cambiar cámara"
+            >
+              <Camera className="h-3 w-3" />
+              {cameraLabel}
+            </button>
+            <button
+              type="button"
+              onClick={onEnterTuningFromCar}
+              className={`flex items-center gap-1 border px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${
+                hud.nearbyZone === 'TUNING'
+                  ? 'border-amber-300 bg-amber-500 text-slate-950'
+                  : 'border-white/15 bg-[#141923] text-slate-200 active:bg-slate-700'
+              }`}
+              aria-label="Entrar al Taller"
+            >
+              <Wrench className="h-3 w-3" />
+              Taller
+            </button>
+            <button
+              type="button"
+              onClick={onToggleTransmission}
+              className="border border-white/15 bg-[#141923] px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-300 active:bg-slate-700 cursor-pointer"
+              aria-label="Cambiar transmisión AT o MT"
+            >
+              {activeTx}
+            </button>
+          </div>
+        ) : toastMessage ? (
+          <div className="border border-white/15 bg-[#090b10]/94 px-3.5 py-1.5 text-[11px] font-medium tracking-wider text-white uppercase shadow-xl">
             {toastMessage}
           </div>
+        ) : (
+          <div />
         )}
 
-        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 border border-white/[0.1] bg-[#090b10]/90 px-3 py-1.5 shadow-xl">
+        <div
+          onTouchStart={stopTouchPropagation}
+          onPointerDown={stopTouchPropagation}
+          className="pointer-events-auto ml-auto flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 border border-white/[0.1] bg-[#090b10]/90 px-3 py-1.5 shadow-xl"
+        >
           <div className="font-telemetry text-sm md:text-base font-semibold text-white pr-1">
             ${profile.cash.toLocaleString()}
           </div>
@@ -504,7 +595,11 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
       <div className="relative flex-1 flex items-center justify-end my-2 min-h-0">
         {/* MIS CARROS PERSONAL GARAGE PANEL */}
         {garageOpen && !tuningOpen && !dealershipOpen && (
-          <aside className="pointer-events-auto flex max-h-full w-full max-w-[375px] flex-col border border-white/[0.12] bg-[#090b10]/94 p-3.5 shadow-2xl overflow-y-auto">
+          <aside
+            onTouchStart={stopTouchPropagation}
+            onPointerDown={stopTouchPropagation}
+            className="pointer-events-auto flex max-h-full w-full max-w-[375px] flex-col border border-white/[0.12] bg-[#090b10]/94 p-3.5 shadow-2xl overflow-y-auto"
+          >
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-2.5 mb-3">
               <div>
                 <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-[#e10600] font-semibold">
@@ -618,7 +713,11 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
 
         {/* TALLER DE PERSONALIZACIÓN DRAWER (3 TABS: RENDIMIENTO, COSMÉTICO, PINTURA Y TINTE) */}
         {tuningOpen && (
-          <aside className="pointer-events-auto flex max-h-full w-full max-w-[396px] flex-col border border-white/[0.12] bg-[#090b10]/96 p-3.5 shadow-2xl">
+          <aside
+            onTouchStart={stopTouchPropagation}
+            onPointerDown={stopTouchPropagation}
+            className="pointer-events-auto flex max-h-full w-full max-w-[396px] flex-col border border-white/[0.12] bg-[#090b10]/96 p-3.5 shadow-2xl"
+          >
             <div className="flex items-center justify-between border-b border-white/[0.08] pb-2.5 mb-2.5 shrink-0">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-[#3b82f6] font-semibold">
@@ -1579,8 +1678,12 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
           <div />
         )}
 
-        {!tuningOpen && !dealershipOpen && hud.mode === 'PARKING_DRIVE' && (
-          <div className="pointer-events-auto mx-auto flex items-center gap-3 border border-white/15 bg-[#090b10]/90 px-4 py-2 text-xs text-slate-200 shadow-xl">
+        {!tuningOpen && !dealershipOpen && hud.mode === 'PARKING_DRIVE' && !showTouchControls && (
+          <div
+            onTouchStart={stopTouchPropagation}
+            onPointerDown={stopTouchPropagation}
+            className="pointer-events-auto mx-auto flex items-center gap-3 border border-white/15 bg-[#090b10]/90 px-4 py-2 text-xs text-slate-200 shadow-xl"
+          >
             <span className="font-telemetry font-bold text-white">
               {currentDriveSpeed} {speedUnitLabel}
             </span>
@@ -1595,7 +1698,7 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
             <span className="h-3 w-px bg-white/15 hidden sm:inline-block" />
             <button
               type="button"
-              onClick={() => onOpenTuning(true)}
+              onClick={onEnterTuningFromCar}
               className="hidden sm:inline hover:text-white transition-colors cursor-pointer"
             >
               <span className="font-telemetry font-bold text-[#e10600]">[T]</span> Taller
@@ -1609,6 +1712,127 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
         <div />
       </div>
 
+      {/* ==================== IN-CAR PARKING DRIVE HUD (TACHOMETER + FULL MULTITOUCH CONTROLS) ==================== */}
+      {hud.mode === 'PARKING_DRIVE' && !tuningOpen && !dealershipOpen && (
+        <>
+          {showSpeedometer && (
+            <div
+              className="pointer-events-none fixed z-20 flex flex-col items-center select-none"
+              style={getWalkHudStyle(customHud.speedometer)}
+            >
+              <TachometerDial
+                speedDisplay={currentDriveSpeed}
+                speedUnitLabel={speedUnitLabel === 'mph' ? 'MPH' : 'KM/H'}
+                rpm={hud.rpm}
+                maxRpm={hud.maxRpm}
+                gear={hud.gear}
+                nitro={hud.nitro}
+                activeTx={activeTx}
+                tcsEnabled={tcsEnabled}
+                cdiRacing={hud.cdiRacing}
+                revLimiterActive={hud.revLimiterActive}
+                styleConfig={customHud.tachometerStyle}
+              />
+            </div>
+          )}
+
+          {showTouchControls && (
+            <>
+              <MultiTouchHoldButton
+                style={getWalkHudStyle(customHud.steerLeft)}
+                onHoldChange={(active) => onTouchControl('left', active)}
+                className="pointer-events-auto fixed z-20 flex h-16 w-16 touch-none select-none items-center justify-center border border-white/20 bg-[#090b10]/92 text-white shadow-xl cursor-pointer"
+                activeClassName="!bg-[#e10600] !border-white/50 scale-95"
+                ariaLabel="Girar izquierda"
+              >
+                <ChevronLeft className="h-8 w-8" />
+              </MultiTouchHoldButton>
+
+              <MultiTouchHoldButton
+                style={getWalkHudStyle(customHud.steerRight)}
+                onHoldChange={(active) => onTouchControl('right', active)}
+                className="pointer-events-auto fixed z-20 flex h-16 w-16 touch-none select-none items-center justify-center border border-white/20 bg-[#090b10]/92 text-white shadow-xl cursor-pointer"
+                activeClassName="!bg-[#e10600] !border-white/50 scale-95"
+                ariaLabel="Girar derecha"
+              >
+                <ChevronRight className="h-8 w-8" />
+              </MultiTouchHoldButton>
+
+              <button
+                type="button"
+                style={getWalkHudStyle(customHud.headlights)}
+                onTouchStart={stopTouchPropagation}
+                onPointerDown={stopTouchPropagation}
+                onClick={onFlashHeadlights}
+                className="pointer-events-auto fixed z-20 flex h-12 w-14 touch-none select-none flex-col items-center justify-center border border-sky-400/40 bg-[#0b1524]/92 text-[10px] font-bold text-sky-200 active:bg-sky-500 active:text-slate-950 cursor-pointer"
+                aria-label="Destellar luces"
+              >
+                <Lightbulb className="h-3.5 w-3.5 mb-0.5 text-sky-300" />
+                <span>LUCES</span>
+              </button>
+
+              <MultiTouchHoldButton
+                style={getWalkHudStyle(customHud.nitro)}
+                onHoldChange={(active) => onTouchControl('nitro', active)}
+                className="pointer-events-auto fixed z-20 flex h-14 px-4 touch-none select-none flex-col items-center justify-center border border-sky-400/45 bg-[#0d2238]/92 text-xs font-extrabold text-sky-200 shadow-xl cursor-pointer"
+                activeClassName="!bg-sky-500 !text-slate-950 scale-95"
+                ariaLabel="Nitro"
+              >
+                <Zap className="h-3.5 w-3.5 mb-0.5" />
+                <span>NITRO</span>
+              </MultiTouchHoldButton>
+
+              <MultiTouchHoldButton
+                style={getWalkHudStyle(customHud.brake)}
+                onHoldChange={(active) => onTouchControl('brake', active)}
+                className="pointer-events-auto fixed z-20 flex h-16 px-4 touch-none select-none flex-col items-center justify-center border border-white/20 bg-[#090b10]/92 text-[11px] font-bold text-slate-200 shadow-xl cursor-pointer whitespace-nowrap"
+                activeClassName="!bg-amber-600 !text-white scale-95"
+                ariaLabel="Frenar y Reversa"
+              >
+                <span>FRENAR</span>
+                <span className="text-[8px] font-semibold tracking-wider text-slate-400">REVERSA</span>
+              </MultiTouchHoldButton>
+
+              <MultiTouchHoldButton
+                style={getWalkHudStyle(customHud.gas)}
+                onHoldChange={(active) => onTouchControl('throttle', active)}
+                className="pointer-events-auto fixed z-20 flex h-16 px-6 touch-none select-none flex-col items-center justify-center border border-red-400/50 bg-[#e10600]/92 text-xs font-extrabold tracking-wider text-white shadow-xl cursor-pointer"
+                activeClassName="!bg-red-500 scale-95"
+                ariaLabel="Acelerar"
+              >
+                <span>ACELERAR</span>
+                <span className="text-[8px] font-bold tracking-widest text-red-100/80">GAS</span>
+              </MultiTouchHoldButton>
+
+              {activeTx === 'MT' && (
+                <>
+                  <button
+                    type="button"
+                    style={getWalkHudStyle(customHud.shiftDown)}
+                    onTouchStart={stopTouchPropagation}
+                    onPointerDown={stopTouchPropagation}
+                    onClick={() => onShiftGear(-1)}
+                    className="pointer-events-auto fixed z-20 flex h-11 px-3 touch-none select-none items-center justify-center border border-white/15 bg-[#090b10]/92 text-xs font-bold text-slate-200 active:bg-slate-700 cursor-pointer whitespace-nowrap"
+                  >
+                    Gear - [{shiftDownKeyLabel}]
+                  </button>
+                  <button
+                    type="button"
+                    style={getWalkHudStyle(customHud.shiftUp)}
+                    onTouchStart={stopTouchPropagation}
+                    onPointerDown={stopTouchPropagation}
+                    onClick={() => onShiftGear(1)}
+                    className="pointer-events-auto fixed z-20 flex h-11 px-3 touch-none select-none items-center justify-center border border-white/15 bg-[#090b10]/92 text-xs font-bold text-slate-200 active:bg-slate-700 cursor-pointer whitespace-nowrap"
+                  >
+                    Gear + [{shiftUpKeyLabel}]
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </>
+      )}
+
       {/* Customizable Walking HUD Controls (only when WALKING and panels closed) */}
       {hud.mode === 'WALKING' && !tuningOpen && !dealershipOpen && (
         <>
@@ -1618,33 +1842,38 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
           {hud.nearbyZone && hud.nearbyZone !== 'CAR' && (
             <button
               type="button"
+              onTouchStart={stopTouchPropagation}
+              onPointerDown={stopTouchPropagation}
               onClick={handleProximityAction}
               style={getWalkHudStyle(customHud.interact)}
-              className="pointer-events-auto fixed z-20 flex touch-none select-none items-center gap-2 border border-amber-400/50 bg-[#090b10]/92 px-4 py-2.5 text-xs font-medium text-white shadow-xl hover:border-[#e10600] active:scale-95 transition-colors cursor-pointer whitespace-nowrap"
+              className="pointer-events-auto fixed z-20 flex touch-none select-none items-center gap-2 border border-amber-400/70 bg-[#090b10]/95 px-4 py-3 text-xs font-semibold text-white shadow-2xl hover:border-[#e10600] active:scale-95 transition-colors cursor-pointer whitespace-nowrap"
             >
               {hud.nearbyZone === 'CONTRACT' ? (
-                <Flag className="h-3.5 w-3.5 text-amber-400" />
+                <Flag className="h-4 w-4 text-amber-400" />
               ) : (
-                <Wrench className="h-3.5 w-3.5 text-[#e10600]" />
+                <Wrench className="h-4 w-4 text-[#e10600]" />
               )}
               <span>
                 {hud.nearbyZone === 'TUNING' ? (
                   <>
-                    Pulsa <span className="font-telemetry font-bold text-[#e10600]">[E]</span> para entrar al Taller
+                    Interactuar · Abrir Taller{' '}
+                    <span className="font-telemetry font-bold text-[#e10600]">[E]</span>
                   </>
                 ) : hud.nearbyZone === 'CONTRACT' ? (
                   <>
-                    Pulsa <span className="font-telemetry font-bold text-amber-400">[E]</span> CONTRATO ·{' '}
+                    Interactuar · Contrato{' '}
+                    <span className="font-telemetry font-bold text-amber-400">[E]</span> ·{' '}
                     <span className="font-telemetry text-emerald-400">+$18,000</span>
                   </>
                 ) : nearbyDealershipSpec ? (
                   <>
                     <span className="text-slate-300 mr-1">{nearbyDealershipSpec.name} ·</span>
-                    Pulsa <span className="font-telemetry font-bold text-[#e10600]">[E]</span> inspeccionar
+                    Abrir <span className="font-telemetry font-bold text-emerald-400">[E]</span>
                   </>
                 ) : (
                   <>
-                    Pulsa <span className="font-telemetry font-bold text-[#e10600]">[E]</span> Concesionario
+                    Interactuar · Concesionario{' '}
+                    <span className="font-telemetry font-bold text-emerald-400">[E]</span>
                   </>
                 )}
               </span>
@@ -1654,6 +1883,8 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
           {/* Enter Car Touch Button (always accessible while walking, highlighted near car) */}
           <button
             type="button"
+            onTouchStart={stopTouchPropagation}
+            onPointerDown={stopTouchPropagation}
             onClick={onEnterCar}
             style={getWalkHudStyle(customHud.enterCar)}
             className={`pointer-events-auto fixed z-20 flex touch-none select-none items-center gap-2 border px-4 py-2.5 text-xs font-semibold shadow-xl transition-colors cursor-pointer whitespace-nowrap ${
@@ -1665,7 +1896,7 @@ export const ShowroomHUD: React.FC<ShowroomHUDProps> = ({
           >
             <Car className={`h-4 w-4 ${hud.nearbyZone === 'CAR' ? 'text-white' : 'text-[#e10600]'}`} />
             <span>
-              Subir <span className="font-telemetry font-bold">[{enterExitKeyLabel}]</span>
+              Subir al coche <span className="font-telemetry font-bold">[{enterExitKeyLabel}]</span>
             </span>
           </button>
         </>

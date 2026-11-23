@@ -239,12 +239,17 @@ export class MidnightEngine {
   private previewCarId: string | null = null;
   private previewAutoSpin = false;
 
-  // Orbital Camera + Pointer Lock 360° Free Look
+  // Orbital Camera + Pointer Lock 360° Free Look + Multitouch Touch Camera
   private activePointers = new Map<number, { x: number; y: number }>();
   private lastPinchDist: number | null = null;
   private isDragging = false;
   private prevPtrX = 0;
   private prevPtrY = 0;
+  private cameraTouchId: number | null = null;
+  private pinchTouchId: number | null = null;
+  private prevCamTouchX = 0;
+  private prevCamTouchY = 0;
+  private camTouchLastPinchDist: number | null = null;
   private orbitTheta = 0.55;
   private orbitPhi = 1.24;
   private orbitVelTheta = 0;
@@ -518,6 +523,10 @@ export class MidnightEngine {
     window.addEventListener('pointermove', this.handlePointerMove);
     window.addEventListener('pointerup', this.handlePointerUp);
     window.addEventListener('pointercancel', this.handlePointerUp);
+    canvas.addEventListener('touchstart', this.handleCanvasTouchStart, { passive: true });
+    window.addEventListener('touchmove', this.handleWindowTouchMove, { passive: true });
+    window.addEventListener('touchend', this.handleWindowTouchEnd, { passive: true });
+    window.addEventListener('touchcancel', this.handleWindowTouchEnd, { passive: true });
     canvas.addEventListener('wheel', this.handleWheel, { passive: false });
 
     this.emitHud();
@@ -1039,10 +1048,25 @@ export class MidnightEngine {
     return Array.isArray(codes) && codes.includes(code);
   }
 
+  private resetAllInputs() {
+    this.heldCodes.clear();
+    this.touchControls.throttle = false;
+    this.touchControls.brake = false;
+    this.touchControls.left = false;
+    this.touchControls.right = false;
+    this.touchControls.nitro = false;
+    this.activePointers.clear();
+    this.isDragging = false;
+    this.lastPinchDist = null;
+    this.cameraTouchId = null;
+    this.pinchTouchId = null;
+    this.camTouchLastPinchDist = null;
+  }
+
   public setKeyCapturePaused(paused: boolean) {
     this.keyCapturePaused = paused;
     if (paused) {
-      this.heldCodes.clear();
+      this.resetAllInputs();
     }
   }
 
@@ -1177,7 +1201,7 @@ export class MidnightEngine {
   };
 
   private handleWindowBlur = () => {
-    this.heldCodes.clear();
+    this.resetAllInputs();
   };
 
   // ==================== POINTER LOCK & 360° FREE CAMERA ====================
@@ -1234,8 +1258,8 @@ export class MidnightEngine {
       this.orbitTheta -= dx * 0.0042 * sens;
       this.orbitPhi = THREE.MathUtils.clamp(
         this.orbitPhi - dy * 0.0038 * sens,
-        0.18,
-        Math.PI * 0.49
+        (15 * Math.PI) / 180,
+        (100 * Math.PI) / 180
       );
       this.orbitVelTheta = 0;
       this.orbitVelPhi = 0;
@@ -1243,13 +1267,124 @@ export class MidnightEngine {
       this.freeCamYaw -= dx * 0.0045 * sens;
       this.freeCamPitch = THREE.MathUtils.clamp(
         this.freeCamPitch - dy * 0.0035 * sens,
-        -0.55,
-        0.85
+        (-10 * Math.PI) / 180,
+        (75 * Math.PI) / 180
       );
     }
   };
 
+  private findTouchInList(list: TouchList, id: number): Touch | null {
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].identifier === id) return list[i];
+    }
+    return null;
+  }
+
+  private handleCanvasTouchStart = (e: TouchEvent) => {
+    this.audio.unlock();
+    if (this.mode === 'START_MENU' || this.pointerLocked) return;
+
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const t = e.changedTouches[i];
+      if (this.cameraTouchId === null) {
+        this.cameraTouchId = t.identifier;
+        this.prevCamTouchX = t.clientX;
+        this.prevCamTouchY = t.clientY;
+        this.targetPresetTheta = null;
+        this.targetPresetPhi = null;
+        this.previewAutoSpin = false;
+        this.orbitVelTheta = 0;
+        this.orbitVelPhi = 0;
+      } else if (
+        this.mode === 'WALKING' &&
+        this.pinchTouchId === null &&
+        t.identifier !== this.cameraTouchId
+      ) {
+        this.pinchTouchId = t.identifier;
+        const primary = this.findTouchInList(e.touches, this.cameraTouchId);
+        if (primary) {
+          this.camTouchLastPinchDist = Math.hypot(
+            primary.clientX - t.clientX,
+            primary.clientY - t.clientY
+          );
+        }
+      }
+    }
+  };
+
+  private handleWindowTouchMove = (e: TouchEvent) => {
+    if (this.cameraTouchId === null || this.pointerLocked || this.mode === 'START_MENU') return;
+
+    if (this.mode === 'WALKING' && this.pinchTouchId !== null) {
+      const t0 = this.findTouchInList(e.touches, this.cameraTouchId);
+      const t1 = this.findTouchInList(e.touches, this.pinchTouchId);
+      if (t0 && t1) {
+        const dist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+        if (this.camTouchLastPinchDist !== null) {
+          const delta = this.camTouchLastPinchDist - dist;
+          this.targetOrbitRadius = THREE.MathUtils.clamp(
+            this.targetOrbitRadius + delta * 0.015,
+            2.8,
+            12.5
+          );
+        }
+        this.camTouchLastPinchDist = dist;
+        this.prevCamTouchX = t0.clientX;
+        this.prevCamTouchY = t0.clientY;
+        return;
+      }
+    }
+
+    const camTouch = this.findTouchInList(e.changedTouches, this.cameraTouchId);
+    if (!camTouch) return;
+
+    const sens = this.settings.cameraSensitivity;
+    const rawDx = camTouch.clientX - this.prevCamTouchX;
+    const rawDy = camTouch.clientY - this.prevCamTouchY;
+    this.prevCamTouchX = camTouch.clientX;
+    this.prevCamTouchY = camTouch.clientY;
+
+    const dx = THREE.MathUtils.clamp(rawDx, -48, 48);
+    const dy = THREE.MathUtils.clamp(rawDy, -48, 48);
+
+    if (this.mode === 'WALKING') {
+      const dTheta = -dx * 0.0046 * sens;
+      const dPhi = -dy * 0.004 * sens;
+      this.orbitTheta += dTheta;
+      this.orbitPhi = THREE.MathUtils.clamp(
+        this.orbitPhi + dPhi,
+        (15 * Math.PI) / 180,
+        (100 * Math.PI) / 180
+      );
+      this.orbitVelTheta = THREE.MathUtils.lerp(this.orbitVelTheta, dTheta * 22, 0.35);
+      this.orbitVelPhi = THREE.MathUtils.lerp(this.orbitVelPhi, dPhi * 22, 0.35);
+    } else if (this.mode === 'PARKING_DRIVE' || this.mode === 'HIGHWAY') {
+      this.freeCamYaw -= dx * 0.0044 * sens;
+      this.freeCamPitch = THREE.MathUtils.clamp(
+        this.freeCamPitch - dy * 0.0036 * sens,
+        (-10 * Math.PI) / 180,
+        (75 * Math.PI) / 180
+      );
+    }
+  };
+
+  private handleWindowTouchEnd = (e: TouchEvent) => {
+    for (let i = 0; i < e.changedTouches.length; i++) {
+      const id = e.changedTouches[i].identifier;
+      if (id === this.pinchTouchId) {
+        this.pinchTouchId = null;
+        this.camTouchLastPinchDist = null;
+      }
+      if (id === this.cameraTouchId) {
+        this.cameraTouchId = null;
+        this.pinchTouchId = null;
+        this.camTouchLastPinchDist = null;
+      }
+    }
+  };
+
   private handlePointerDown = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') return;
     this.audio.unlock();
     if (this.mode !== 'WALKING' && this.mode !== 'PARKING_DRIVE') return;
     if (this.pointerLocked) return;
@@ -1286,11 +1421,11 @@ export class MidnightEngine {
   };
 
   private handlePointerMove = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') return;
     if (this.pointerLocked) return;
     if (this.mode !== 'WALKING' && this.mode !== 'PARKING_DRIVE') return;
-    if (this.activePointers.has(e.pointerId)) {
-      this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    }
+    if (!this.activePointers.has(e.pointerId)) return;
+    this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (this.activePointers.size === 2) {
       let idx = 0;
@@ -1331,15 +1466,19 @@ export class MidnightEngine {
       const dTheta = -dx * 0.0055 * sens;
       const dPhi = -dy * 0.0048 * sens;
       this.orbitTheta += dTheta;
-      this.orbitPhi = THREE.MathUtils.clamp(this.orbitPhi + dPhi, 0.22, Math.PI * 0.49);
+      this.orbitPhi = THREE.MathUtils.clamp(
+        this.orbitPhi + dPhi,
+        (15 * Math.PI) / 180,
+        (100 * Math.PI) / 180
+      );
       this.orbitVelTheta = THREE.MathUtils.lerp(this.orbitVelTheta, dTheta * 50, 0.45);
       this.orbitVelPhi = THREE.MathUtils.lerp(this.orbitVelPhi, dPhi * 50, 0.45);
     } else if (this.mode === 'PARKING_DRIVE') {
       this.freeCamYaw -= dx * 0.005 * sens;
       this.freeCamPitch = THREE.MathUtils.clamp(
         this.freeCamPitch - dy * 0.004 * sens,
-        -0.45,
-        0.75
+        (-10 * Math.PI) / 180,
+        (75 * Math.PI) / 180
       );
     }
 
@@ -1348,6 +1487,7 @@ export class MidnightEngine {
   };
 
   private handlePointerUp = (e: PointerEvent) => {
+    if (e.pointerType === 'touch') return;
     this.activePointers.delete(e.pointerId);
     if (this.activePointers.size < 2) {
       this.lastPinchDist = null;
@@ -1565,9 +1705,11 @@ export class MidnightEngine {
 
   public setMode(nextMode: GameMode) {
     if (nextMode === 'START_MENU') {
+      this.resetAllInputs();
       this.exitPointerLock();
       this.resetParticles();
       this.mode = 'START_MENU';
+      this.nearbyZone = null;
       this.driverChar.root.visible = false;
       this.tuningDrawerOpen = false;
       this.inTuningBay = false;
@@ -1601,6 +1743,7 @@ export class MidnightEngine {
       this.emitHud();
     } else if (nextMode === 'WALKING') {
       this.audio.unlock();
+      this.resetAllInputs();
       this.resetParticles();
       this.mode = 'WALKING';
       this.driverChar.root.visible = true;
@@ -1628,7 +1771,9 @@ export class MidnightEngine {
 
   public enterCarInParking() {
     this.audio.unlock();
+    this.resetAllInputs();
     this.mode = 'PARKING_DRIVE';
+    this.nearbyZone = null;
     this.tuningDrawerOpen = false;
     this.inTuningBay = false;
     this.enteredTuningByCar = false;
@@ -1659,6 +1804,7 @@ export class MidnightEngine {
   }
 
   public exitCarInParking() {
+    this.resetAllInputs();
     this.mode = 'WALKING';
     this.parkingSpeedMs = 0;
     this.suspPitch = 0;
@@ -1717,6 +1863,7 @@ export class MidnightEngine {
   }
 
   private enterNearestTuningBayFromDrive(snapX?: number) {
+    this.resetAllInputs();
     const bayX = this.pickNearestBayX(snapX ?? this.parkedCarPos.x);
     this.activeTuningBayX = bayX;
     this.parkingSpeedMs = 0;
@@ -1729,6 +1876,17 @@ export class MidnightEngine {
     this.driverChar.root.visible = false;
     this.setStudioFocusZone('TUNING', bayX);
     this.onEnterTuningBayCallback?.();
+  }
+
+  public openTuningFromCurrentMode() {
+    if (this.mode === 'PARKING_DRIVE') {
+      this.enterNearestTuningBayFromDrive();
+    } else {
+      this.resetAllInputs();
+      this.enteredTuningByCar = false;
+      this.activeTuningBayX = TUNER_BAY_POS.x;
+      this.onEnterTuningBayCallback?.();
+    }
   }
 
   public spawnCarInFrontOfPlayer() {
@@ -1924,15 +2082,16 @@ export class MidnightEngine {
   }
 
   public shiftGear(delta: 1 | -1) {
-    if (this.mode !== 'HIGHWAY') return;
+    if (this.mode !== 'HIGHWAY' && this.mode !== 'PARKING_DRIVE') return;
     if (this.getActiveCarTransmission() !== 'MT') return;
 
     const { spec, carState } = this.getActiveCarState();
     const maxRpm = getCarEffectiveMaxRpm(spec, carState);
+    const activeSpeedMs = this.mode === 'HIGHWAY' ? this.speedMs : this.parkingSpeedMs;
 
     let nextGear = THREE.MathUtils.clamp(this.gear + delta, -1, 6);
     // Block shifting directly into Reverse while moving quickly forward
-    if (nextGear === -1 && this.speedMs > 5.0) {
+    if (nextGear === -1 && activeSpeedMs > 5.0) {
       nextGear = 0;
     }
     if (nextGear !== this.gear) {
@@ -2069,6 +2228,10 @@ export class MidnightEngine {
    */
   public enterHighway(fromParkingDrive = false) {
     this.audio.unlock();
+    this.cameraTouchId = null;
+    this.pinchTouchId = null;
+    this.camTouchLastPinchDist = null;
+    this.nearbyZone = null;
     this.resetParticles();
     this.mode = 'HIGHWAY';
     this.tuningDrawerOpen = false;
@@ -2229,6 +2392,7 @@ export class MidnightEngine {
 
   public exitToShowroom() {
     this.bankPendingCash(true);
+    this.resetAllInputs();
     this.resetParticles();
     this.contractActive = false;
     this.mode = 'WALKING';
@@ -2822,18 +2986,16 @@ export class MidnightEngine {
     }
     this.nearbyDealershipCarId = closestShowcaseId;
 
-    if (distCounterBox < 1.85) {
+    if (distCounterBox < 2.4 || distDealer < 3.6) {
       this.nearbyZone = 'DEALERSHIP';
-    } else if (this.walkerPos.x >= 50.2 && this.walkerPos.z <= 1.9) {
-      this.nearbyZone = closestShowcaseId ? 'DEALERSHIP' : null;
-    } else if (distContract < 2.65) {
+    } else if (distContract < 2.8) {
       this.nearbyZone = 'CONTRACT';
-    } else if (distCar < 3.6) {
-      this.nearbyZone = 'CAR';
     } else if (distTuner < 4.4 || inTallerCyanZone) {
       this.nearbyZone = 'TUNING';
-    } else if (distDealer < 4.4) {
-      this.nearbyZone = 'DEALERSHIP';
+    } else if (this.walkerPos.x >= 50.2 && this.walkerPos.z <= 1.9) {
+      this.nearbyZone = closestShowcaseId ? 'DEALERSHIP' : null;
+    } else if (distCar < 3.6) {
+      this.nearbyZone = 'CAR';
     } else {
       this.nearbyZone = null;
     }
@@ -2852,15 +3014,16 @@ export class MidnightEngine {
       this.focusZone === 'DEALERSHIP' &&
       this.previewAutoSpin &&
       !this.isDragging &&
+      this.cameraTouchId === null &&
       !this.pointerLocked
     ) {
       this.orbitTheta += 0.34 * dt;
-    } else if (!this.isDragging && !this.pointerLocked) {
+    } else if (!this.isDragging && this.cameraTouchId === null && !this.pointerLocked) {
       this.orbitTheta += this.orbitVelTheta * dt;
       this.orbitPhi = THREE.MathUtils.clamp(
         this.orbitPhi + this.orbitVelPhi * dt,
-        0.18,
-        Math.PI * 0.49
+        (15 * Math.PI) / 180,
+        (100 * Math.PI) / 180
       );
       const damping = Math.exp(-5.8 * dt);
       this.orbitVelTheta *= damping;
@@ -2875,7 +3038,7 @@ export class MidnightEngine {
     this.camera.position.x =
       this.orbitLookAt.x + this.orbitRadius * Math.sin(this.orbitPhi) * Math.sin(this.orbitTheta);
     this.camera.position.y = Math.max(
-      0.5,
+      0.35,
       this.orbitLookAt.y + this.orbitRadius * Math.cos(this.orbitPhi)
     );
     this.camera.position.z =
@@ -2950,8 +3113,10 @@ export class MidnightEngine {
     // 3 Taller Bays are along the left-back side (world x = 34.4..49.6, z = -13..-2)
     const inTallerApron = nextX >= 34.4 && nextX <= 49.6;
     const inBarrierGate = nextZ >= 9.0 && nextZ <= 27.5;
+    const inBayDriveZone = nextX >= 34.0 && nextX <= 50.0 && nextZ <= 1.2 && nextZ >= -13.0;
+    this.nearbyZone = inBayDriveZone ? 'TUNING' : null;
 
-    if (inTallerApron && nextZ <= -4.8 && !this.inTuningBay) {
+    if (inTallerApron && nextZ <= -5.4 && !this.inTuningBay) {
       this.enterNearestTuningBayFromDrive(nextX);
       return;
     }
@@ -3129,6 +3294,7 @@ export class MidnightEngine {
     const gearTopSpeeds = getGearTopSpeedsKmh(spec, carState, false);
     const gear1CapMs = Math.max(8, gearTopSpeeds[1] / 3.6);
     const gear2CapMs = Math.max(14, gearTopSpeeds[2] / 3.6);
+    const activeTx = this.getActiveCarTransmission();
 
     if (this.parkingSpeedMs < -0.2) {
       this.gear = -1;
@@ -3144,16 +3310,26 @@ export class MidnightEngine {
       );
       this.revLimiterActive = false;
     } else if (absSpeed < 0.15 && !throttle) {
-      this.gear = 0;
+      if (activeTx === 'AT') {
+        this.gear = 0;
+      }
       this.rpm = THREE.MathUtils.damp(this.rpm, IDLE_RPM, 8.5, dt);
       this.revLimiterActive = false;
     } else {
-      if (absSpeed >= gear1CapMs * 0.96 && this.gear < 2) {
-        this.gear = 2;
-      } else if (this.gear !== 2 || absSpeed < gear1CapMs * 0.72) {
+      if (activeTx === 'AT') {
+        if (absSpeed >= gear1CapMs * 0.96 && this.gear < 2) {
+          this.gear = 2;
+        } else if (this.gear !== 2 || absSpeed < gear1CapMs * 0.72) {
+          this.gear = 1;
+        }
+      } else if (this.gear <= 0 && throttle) {
         this.gear = 1;
       }
-      const activeCapMs = this.gear === 2 ? gear2CapMs : gear1CapMs;
+      const gearCapLookup =
+        this.gear >= 1 && this.gear < gearTopSpeeds.length
+          ? Math.max(8, gearTopSpeeds[this.gear] / 3.6)
+          : gear1CapMs;
+      const activeCapMs = activeTx === 'AT' ? (this.gear === 2 ? gear2CapMs : gear1CapMs) : gearCapLookup;
       const wheelRatio = THREE.MathUtils.clamp(absSpeed / activeCapMs, 0, 1.02);
       const clutchFlare = throttle
         ? (1 - THREE.MathUtils.smoothstep(wheelRatio, 0, 0.45)) * (maxRpm * 0.24)
@@ -3186,7 +3362,7 @@ export class MidnightEngine {
       fuelCutActive: !carState.cdiRacing && this.revLimiterActive,
     });
 
-    if (!this.pointerLocked && !this.isDragging) {
+    if (!this.pointerLocked && !this.isDragging && this.cameraTouchId === null) {
       this.freeCamYaw = THREE.MathUtils.damp(this.freeCamYaw, 0, 5.5, dt);
       this.freeCamPitch = THREE.MathUtils.damp(this.freeCamPitch, 0, 5.5, dt);
     }
@@ -4051,7 +4227,7 @@ export class MidnightEngine {
     this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 0.08);
     this.camera.updateProjectionMatrix();
 
-    if (!this.pointerLocked) {
+    if (!this.pointerLocked && !this.isDragging && this.cameraTouchId === null) {
       this.freeCamYaw = THREE.MathUtils.damp(this.freeCamYaw, 0, 5.5, realDt);
       this.freeCamPitch = THREE.MathUtils.damp(this.freeCamPitch, 0, 5.5, realDt);
     }
@@ -4446,11 +4622,15 @@ export class MidnightEngine {
     window.removeEventListener('pointermove', this.handlePointerMove);
     window.removeEventListener('pointerup', this.handlePointerUp);
     window.removeEventListener('pointercancel', this.handlePointerUp);
+    window.removeEventListener('touchmove', this.handleWindowTouchMove);
+    window.removeEventListener('touchend', this.handleWindowTouchEnd);
+    window.removeEventListener('touchcancel', this.handleWindowTouchEnd);
 
     const canvas = this.renderer.domElement;
     canvas.removeEventListener('webglcontextlost', this.handleContextLost);
     canvas.removeEventListener('webglcontextrestored', this.handleContextRestored);
     canvas.removeEventListener('pointerdown', this.handlePointerDown);
+    canvas.removeEventListener('touchstart', this.handleCanvasTouchStart);
     canvas.removeEventListener('wheel', this.handleWheel);
 
     this.onlineClient?.dispose();

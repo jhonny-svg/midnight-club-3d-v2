@@ -29,6 +29,7 @@ import {
   RadioStation,
   RemotePlayerSummary,
   SpeedUnits,
+  TouchControlsMode,
   TransmissionMode,
   ViewDistance,
   WeatherMode,
@@ -612,6 +613,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   }
                   className="w-full accent-[#e10600] cursor-pointer"
                 />
+              </div>
+
+              {/* Touch Controls Mode */}
+              <div className="border-t border-white/[0.06] pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium uppercase tracking-[0.14em] text-slate-200">
+                    Controles Táctiles en Pantalla
+                  </span>
+                  <span className="font-telemetry text-[11px] text-slate-400">
+                    {settings.touchControlsMode === 'ALWAYS'
+                      ? 'Visibles en todo momento'
+                      : 'Automático en móvil / tablet / táctil'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 border border-white/[0.08] bg-[#06080c]">
+                  {(
+                    [
+                      { id: 'AUTO', label: 'Auto (Táctil / ≤1024px)' },
+                      { id: 'ALWAYS', label: 'Siempre Activos' },
+                    ] as Array<{ id: TouchControlsMode; label: string }>
+                  ).map((tm, idx) => (
+                    <button
+                      key={tm.id}
+                      type="button"
+                      onClick={() => onUpdateSettings({ touchControlsMode: tm.id })}
+                      className={`py-2.5 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors cursor-pointer ${
+                        idx > 0 ? 'border-l border-white/[0.08]' : ''
+                      } ${
+                        settings.touchControlsMode === tm.id
+                          ? 'bg-[#e10600] text-white'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {tm.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* TCS */}

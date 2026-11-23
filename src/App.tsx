@@ -318,6 +318,8 @@ function loadSavedSettings(
         parsed.speedUnits === 'KMH' || parsed.speedUnits === 'MPH'
           ? parsed.speedUnits
           : DEFAULT_SETTINGS.speedUnits,
+      touchControlsMode:
+        parsed.touchControlsMode === 'ALWAYS' ? 'ALWAYS' : 'AUTO',
     };
   } catch {
     return {
@@ -1000,6 +1002,9 @@ export default function App() {
           hud={hud}
           muted={settings.muted}
           speedUnits={settings.speedUnits}
+          showSpeedometer={settings.showSpeedometer}
+          tcsEnabled={settings.tcsEnabled}
+          touchControlsMode={settings.touchControlsMode}
           keybindings={settings.keybindings}
           customHud={settings.customHud}
           tuningOpen={tuningOpen}
@@ -1015,6 +1020,11 @@ export default function App() {
           }}
           onExitCar={() => engineRef.current?.exitCarInParking()}
           onTogglePointerLock={() => engineRef.current?.togglePointerLock()}
+          onCycleCamera={() => engineRef.current?.cycleCameraPreset()}
+          onFlashHeadlights={() => engineRef.current?.triggerHeadlightFlash()}
+          onToggleTransmission={() => engineRef.current?.toggleTransmission()}
+          onShiftGear={(d) => engineRef.current?.shiftGear(d)}
+          onEnterTuningFromCar={() => engineRef.current?.openTuningFromCurrentMode()}
           onOpenSettings={() => handleOpenSettings('GRAFICOS')}
           onBuyOrSelectCar={handleBuyOrSelectCar}
           onSpawnCarInFront={handleSpawnCarInFront}
@@ -1029,6 +1039,7 @@ export default function App() {
           onPreviewDealershipCar={(carId) => engineRef.current?.previewDealershipCar(carId)}
           onRevDealershipCar={(carId) => engineRef.current?.revDealershipCar(carId)}
           onTouchWalk={(k, active) => engineRef.current?.setTouchControl(k, active)}
+          onTouchControl={(k, active) => engineRef.current?.setTouchControl(k, active)}
           onOpenProgression={() => {
             engineRef.current?.exitPointerLock();
             setProgressionOpen(true);
@@ -1052,6 +1063,7 @@ export default function App() {
             setProgressionOpen(true);
           }}
           onTogglePointerLock={() => engineRef.current?.togglePointerLock()}
+          onCycleCamera={() => engineRef.current?.cycleCameraPreset()}
           onToggleTransmission={() => engineRef.current?.toggleTransmission()}
           onToggleTcs={() => updateAndPersistSettings({ tcsEnabled: !settings.tcsEnabled })}
           onToggleAbs={() => updateAndPersistSettings({ absEnabled: !settings.absEnabled })}

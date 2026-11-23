@@ -9,6 +9,7 @@ export type GraphicsQuality = 'LOW' | 'MEDIUM' | 'HIGH';
 export type ViewDistance = 'SHORT' | 'MEDIUM' | 'FAR';
 export type SpeedUnits = 'KMH' | 'MPH';
 export type RadioStation = 'OFF' | 'PHONK' | 'SYNTHWAVE';
+export type TouchControlsMode = 'AUTO' | 'ALWAYS';
 
 export type SpoilerOption = 'stock' | 'none' | 'ducktail' | 'street_wing' | 'gt_wing';
 export type PaintFinish = 'gloss' | 'matte' | 'metallic' | 'chrome' | 'chameleon';
@@ -309,10 +310,11 @@ export interface GameSettings {
   tcsEnabled: boolean;
   absEnabled: boolean;
   keybindings: Keybindings;
-  // Juego / Datos
+  // Juego / Datos & Táctil
   speedUnits: SpeedUnits;
   showMinimap: boolean;
   showSpeedometer: boolean;
+  touchControlsMode: TouchControlsMode;
   // Personalización del HUD táctil y tacómetro
   customHud: CustomHudLayout;
 }
@@ -336,6 +338,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
   speedUnits: 'KMH',
   showMinimap: true,
   showSpeedometer: true,
+  touchControlsMode: 'AUTO',
   customHud: cloneDefaultCustomHud(),
 };
 

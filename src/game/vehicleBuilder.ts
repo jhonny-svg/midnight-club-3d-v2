@@ -2104,7 +2104,7 @@ export function buildDriverCharacter(textures: ProceduralTextureSet): DriverChar
     shin.position.y = -0.18;
     shin.castShadow = true;
     const shoe = new THREE.Mesh(shoeGeo, shoeMat);
-    shoe.position.set(0, -0.39, -0.045);
+    shoe.position.set(0, -0.415, -0.045);
 
     knee.add(shin, shoe);
     hip.add(thigh, knee);
@@ -2203,9 +2203,9 @@ export function buildDriverCharacter(textures: ProceduralTextureSet): DriverChar
         leftArmRig.elbow.rotation.x = 0.45 + Math.max(0, -s) * 0.55;
         rightArmRig.elbow.rotation.x = 0.45 + Math.max(0, s) * 0.55;
 
-        // Vertical stride bob, sprint forward lean, and shoulder counter-rotation
-        bodyRig.position.y = Math.abs(c) * (0.032 + moveSpeedNorm * 0.025);
-        torsoGroup.rotation.x = 0.06 + moveSpeedNorm * 0.14;
+        // Grounded stride bob, natural forward lean, and shoulder counter-rotation
+        bodyRig.position.y = -0.008 + Math.abs(c) * (0.018 + moveSpeedNorm * 0.014);
+        torsoGroup.rotation.x = -(0.05 + moveSpeedNorm * 0.1);
         torsoGroup.rotation.y = s * 0.11;
         headGroup.rotation.x = -torsoGroup.rotation.x * 0.55;
       } else {

@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import {
   ArrowLeft,
   Award,
+  Camera,
   ChevronLeft,
   ChevronRight,
   Crosshair,
@@ -9,6 +10,7 @@ import {
   Flag,
   Flame,
   Lightbulb,
+  LogOut,
   Radio,
   Settings,
   Swords,
@@ -23,6 +25,7 @@ import {
   HudSnapshot,
   SaveProfile,
 } from '../game/types';
+import { MultiTouchHoldButton, useTouchControlsActive } from './MultiTouchButton';
 import { TachometerDial } from './TachometerDial';
 
 interface HighwayHUDProps {
@@ -33,6 +36,7 @@ interface HighwayHUDProps {
   onOpenSettings: () => void;
   onOpenProgression: () => void;
   onTogglePointerLock: () => void;
+  onCycleCamera: () => void;
   onToggleTransmission: () => void;
   onToggleTcs: () => void;
   onToggleAbs: () => void;
@@ -60,6 +64,7 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
   onOpenSettings,
   onOpenProgression,
   onTogglePointerLock,
+  onCycleCamera,
   onToggleTransmission,
   onToggleTcs,
   onToggleAbs,
@@ -68,29 +73,21 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
   onFlashHeadlights,
   onTouchControl,
 }) => {
-  const [isTouchDevice, setIsTouchDevice] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const coarseMq = window.matchMedia('(pointer: coarse)');
-    const fineHoverMq = window.matchMedia('(any-pointer: fine) and (hover: hover)');
-    const checkTouchOnly = () =>
-      setIsTouchDevice(
-        coarseMq.matches && navigator.maxTouchPoints > 0 && !fineHoverMq.matches
-      );
-    checkTouchOnly();
-    coarseMq.addEventListener('change', checkTouchOnly);
-    fineHoverMq.addEventListener('change', checkTouchOnly);
-    return () => {
-      coarseMq.removeEventListener('change', checkTouchOnly);
-      fineHoverMq.removeEventListener('change', checkTouchOnly);
-    };
-  }, []);
+  const isTouchDevice = useTouchControlsActive(settings.touchControlsMode);
 
   const isMph = settings.speedUnits === 'MPH';
   const displaySpeed = isMph ? Math.round(hud.speedKmh * 0.621371) : hud.speedKmh;
   const speedUnitLabel = isMph ? 'MPH' : 'KM/H';
   const activeTx = profile.cars[profile.activeCarId]?.transmission ?? profile.transmission;
+  const cameraLabel =
+    hud.cameraPreset === 'HOOD'
+      ? 'Cabina'
+      : hud.cameraPreset === 'BUMPER'
+        ? 'Frontal'
+        : 'Ext.';
+  const stopTouchPropagation = (e: React.TouchEvent | React.PointerEvent) => {
+    e.stopPropagation();
+  };
 
   const formatMissionProgress = () => {
     const m = hud.mission.mission;
@@ -131,7 +128,11 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
       {/* Top Bar: Clean & Minimalist */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col items-start gap-2">
-          <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 sm:gap-2 border border-white/10 bg-[#090b10]/90 px-3 py-1.5 shadow-lg">
+          <div
+            onTouchStart={stopTouchPropagation}
+            onPointerDown={stopTouchPropagation}
+            className="pointer-events-auto flex flex-wrap items-center gap-1.5 sm:gap-2 border border-white/10 bg-[#090b10]/90 px-3 py-1.5 shadow-lg"
+          >
             <button
               type="button"
               onClick={onExitHighway}
@@ -218,18 +219,31 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
 
           {/* Compact Mobile Quick Toggles Bar (Top-Left, keeps bottom HUD 100% free for Custom HUD) */}
           {isTouchDevice && (
-            <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 border border-white/10 bg-[#090b10]/92 p-1 shadow-lg">
+            <div
+              onTouchStart={stopTouchPropagation}
+              onPointerDown={stopTouchPropagation}
+              className="pointer-events-auto flex flex-wrap items-center gap-1.5 border border-white/10 bg-[#090b10]/92 p-1 shadow-lg"
+            >
+              <button
+                type="button"
+                onClick={onCycleCamera}
+                className="flex items-center gap-1 border border-sky-400/40 bg-sky-500/15 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-sky-200 active:bg-sky-500 active:text-slate-950 cursor-pointer"
+                aria-label="Cambiar cámara"
+              >
+                <Camera className="h-3 w-3" />
+                {cameraLabel}
+              </button>
               <button
                 type="button"
                 onClick={onToggleTransmission}
-                className="border border-white/15 bg-[#141923] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-300 active:bg-slate-700 cursor-pointer"
+                className="border border-white/15 bg-[#141923] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-amber-300 active:bg-slate-700 cursor-pointer"
               >
-                {activeTx === 'AT' ? 'Automático' : 'Manual'}
+                {activeTx === 'AT' ? 'AT' : 'MT'}
               </button>
               <button
                 type="button"
                 onClick={onToggleTcs}
-                className={`border px-2 py-1 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${
+                className={`border px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${
                   settings.tcsEnabled
                     ? 'border-sky-400/50 bg-sky-500/20 text-sky-200'
                     : 'border-white/15 bg-[#141923] text-slate-400'
@@ -240,7 +254,7 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
               <button
                 type="button"
                 onClick={onToggleAbs}
-                className={`border px-2 py-1 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${
+                className={`border px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer ${
                   settings.absEnabled
                     ? 'border-emerald-400/50 bg-emerald-500/20 text-emerald-200'
                     : 'border-white/15 bg-[#141923] text-slate-400'
@@ -251,16 +265,22 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
               <button
                 type="button"
                 onClick={onExitHighway}
-                className="border border-red-400/35 bg-[#201015] px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-200 active:bg-red-700 cursor-pointer"
+                className="flex items-center gap-1 border border-red-400/45 bg-[#241016] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-red-200 active:bg-red-700 cursor-pointer"
+                aria-label="Bajar / Volver al Parking"
               >
-                Salida
+                <LogOut className="h-3 w-3" />
+                Bajar
               </button>
             </div>
           )}
         </div>
 
         {/* Top-Right: Distance + Session + Cash + Rank + Free Cam [Tab] + Settings Gear */}
-        <div className="pointer-events-auto flex items-center gap-2.5 sm:gap-3 border border-white/10 bg-[#090b10]/90 px-3.5 py-2 shadow-lg">
+        <div
+          onTouchStart={stopTouchPropagation}
+          onPointerDown={stopTouchPropagation}
+          className="pointer-events-auto flex items-center gap-2.5 sm:gap-3 border border-white/10 bg-[#090b10]/90 px-3.5 py-2 shadow-lg"
+        >
           <div className="text-right">
             <div className="text-[10px] uppercase tracking-wider text-slate-400">Distancia</div>
             <div className="font-telemetry text-sm font-bold text-slate-100">
@@ -431,38 +451,34 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
           </div>
         )}
 
-        {/* Customizable Touch Controls (Mobile / Touch Devices ONLY) */}
+        {/* Customizable Multitouch Driving Controls (Mobile / Touch Devices or Always Active) */}
         {isTouchDevice && (
           <>
-            <button
-              type="button"
+            <MultiTouchHoldButton
               style={getHudElementStyle(customHud.steerLeft)}
-              onPointerDown={() => onTouchControl('left', true)}
-              onPointerUp={() => onTouchControl('left', false)}
-              onPointerLeave={() => onTouchControl('left', false)}
-              onPointerCancel={() => onTouchControl('left', false)}
-              className="pointer-events-auto fixed z-20 flex h-14 w-14 touch-none select-none items-center justify-center border border-white/15 bg-[#090b10]/92 text-white active:bg-[#e10600] cursor-pointer"
-              aria-label="Girar izquierda"
+              onHoldChange={(active) => onTouchControl('left', active)}
+              className="pointer-events-auto fixed z-20 flex h-16 w-16 touch-none select-none items-center justify-center border border-white/20 bg-[#090b10]/92 text-white shadow-xl cursor-pointer"
+              activeClassName="!bg-[#e10600] !border-white/50 scale-95"
+              ariaLabel="Girar izquierda"
             >
-              <ChevronLeft className="h-7 w-7" />
-            </button>
+              <ChevronLeft className="h-8 w-8" />
+            </MultiTouchHoldButton>
 
-            <button
-              type="button"
+            <MultiTouchHoldButton
               style={getHudElementStyle(customHud.steerRight)}
-              onPointerDown={() => onTouchControl('right', true)}
-              onPointerUp={() => onTouchControl('right', false)}
-              onPointerLeave={() => onTouchControl('right', false)}
-              onPointerCancel={() => onTouchControl('right', false)}
-              className="pointer-events-auto fixed z-20 flex h-14 w-14 touch-none select-none items-center justify-center border border-white/15 bg-[#090b10]/92 text-white active:bg-[#e10600] cursor-pointer"
-              aria-label="Girar derecha"
+              onHoldChange={(active) => onTouchControl('right', active)}
+              className="pointer-events-auto fixed z-20 flex h-16 w-16 touch-none select-none items-center justify-center border border-white/20 bg-[#090b10]/92 text-white shadow-xl cursor-pointer"
+              activeClassName="!bg-[#e10600] !border-white/50 scale-95"
+              ariaLabel="Girar derecha"
             >
-              <ChevronRight className="h-7 w-7" />
-            </button>
+              <ChevronRight className="h-8 w-8" />
+            </MultiTouchHoldButton>
 
             <button
               type="button"
               style={getHudElementStyle(customHud.headlights)}
+              onTouchStart={stopTouchPropagation}
+              onPointerDown={stopTouchPropagation}
               onClick={onFlashHeadlights}
               className="pointer-events-auto fixed z-20 flex h-12 w-14 touch-none select-none flex-col items-center justify-center border border-sky-400/40 bg-[#0b1524]/92 text-[10px] font-bold text-sky-200 active:bg-sky-500 active:text-slate-950 cursor-pointer"
               aria-label="Destellar luces / Retar duelo"
@@ -471,51 +487,46 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
               <span>LUCES</span>
             </button>
 
-            <button
-              type="button"
+            <MultiTouchHoldButton
               style={getHudElementStyle(customHud.nitro)}
-              onPointerDown={() => onTouchControl('nitro', true)}
-              onPointerUp={() => onTouchControl('nitro', false)}
-              onPointerLeave={() => onTouchControl('nitro', false)}
-              onPointerCancel={() => onTouchControl('nitro', false)}
-              className="pointer-events-auto fixed z-20 flex h-14 px-3.5 touch-none select-none flex-col items-center justify-center border border-sky-400/40 bg-[#0d2238]/92 text-xs font-extrabold text-sky-200 active:bg-sky-500 active:text-slate-950 cursor-pointer"
-              aria-label="Nitro"
+              onHoldChange={(active) => onTouchControl('nitro', active)}
+              className="pointer-events-auto fixed z-20 flex h-14 px-4 touch-none select-none flex-col items-center justify-center border border-sky-400/45 bg-[#0d2238]/92 text-xs font-extrabold text-sky-200 shadow-xl cursor-pointer"
+              activeClassName="!bg-sky-500 !text-slate-950 scale-95"
+              ariaLabel="Nitro"
             >
               <Zap className="h-3.5 w-3.5 mb-0.5" />
               <span>NITRO</span>
-            </button>
+            </MultiTouchHoldButton>
 
-            <button
-              type="button"
+            <MultiTouchHoldButton
               style={getHudElementStyle(customHud.brake)}
-              onPointerDown={() => onTouchControl('brake', true)}
-              onPointerUp={() => onTouchControl('brake', false)}
-              onPointerLeave={() => onTouchControl('brake', false)}
-              onPointerCancel={() => onTouchControl('brake', false)}
-              className="pointer-events-auto fixed z-20 flex h-14 px-3.5 touch-none select-none flex-col items-center justify-center border border-white/15 bg-[#090b10]/92 text-xs font-bold text-slate-200 active:bg-amber-600 cursor-pointer"
-              aria-label="Freno y Reversa"
+              onHoldChange={(active) => onTouchControl('brake', active)}
+              className="pointer-events-auto fixed z-20 flex h-16 px-4 touch-none select-none flex-col items-center justify-center border border-white/20 bg-[#090b10]/92 text-[11px] font-bold text-slate-200 shadow-xl cursor-pointer whitespace-nowrap"
+              activeClassName="!bg-amber-600 !text-white scale-95"
+              ariaLabel="Frenar y Reversa"
             >
-              <span>FRENO</span>
-            </button>
+              <span>FRENAR</span>
+              <span className="text-[8px] font-semibold tracking-wider text-slate-400">REVERSA</span>
+            </MultiTouchHoldButton>
 
-            <button
-              type="button"
+            <MultiTouchHoldButton
               style={getHudElementStyle(customHud.gas)}
-              onPointerDown={() => onTouchControl('throttle', true)}
-              onPointerUp={() => onTouchControl('throttle', false)}
-              onPointerLeave={() => onTouchControl('throttle', false)}
-              onPointerCancel={() => onTouchControl('throttle', false)}
-              className="pointer-events-auto fixed z-20 flex h-14 px-5 touch-none select-none flex-col items-center justify-center border border-red-400/40 bg-[#e10600]/92 text-xs font-extrabold text-white active:bg-red-500 cursor-pointer"
-              aria-label="Acelerador"
+              onHoldChange={(active) => onTouchControl('throttle', active)}
+              className="pointer-events-auto fixed z-20 flex h-16 px-6 touch-none select-none flex-col items-center justify-center border border-red-400/50 bg-[#e10600]/92 text-xs font-extrabold tracking-wider text-white shadow-xl cursor-pointer"
+              activeClassName="!bg-red-500 scale-95"
+              ariaLabel="Acelerar"
             >
-              <span>GAS</span>
-            </button>
+              <span>ACELERAR</span>
+              <span className="text-[8px] font-bold tracking-widest text-red-100/80">GAS</span>
+            </MultiTouchHoldButton>
 
             {activeTx === 'MT' && (
               <>
                 <button
                   type="button"
                   style={getHudElementStyle(customHud.shiftDown)}
+                  onTouchStart={stopTouchPropagation}
+                  onPointerDown={stopTouchPropagation}
                   onClick={() => onShiftGear(-1)}
                   className="pointer-events-auto fixed z-20 flex h-11 px-3 touch-none select-none items-center justify-center border border-white/15 bg-[#090b10]/92 text-xs font-bold text-slate-200 active:bg-slate-700 cursor-pointer whitespace-nowrap"
                 >
@@ -524,6 +535,8 @@ export const HighwayHUD: React.FC<HighwayHUDProps> = ({
                 <button
                   type="button"
                   style={getHudElementStyle(customHud.shiftUp)}
+                  onTouchStart={stopTouchPropagation}
+                  onPointerDown={stopTouchPropagation}
                   onClick={() => onShiftGear(1)}
                   className="pointer-events-auto fixed z-20 flex h-11 px-3 touch-none select-none items-center justify-center border border-white/15 bg-[#090b10]/92 text-xs font-bold text-slate-200 active:bg-slate-700 cursor-pointer whitespace-nowrap"
                 >
